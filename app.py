@@ -93,14 +93,21 @@ def upsert_actual(match_no: int, home_goals=None, away_goals=None, winner_code=N
     r.winner_code = winner_code
 
 
-def parse_goal_value(raw: str | None, *, match_no: int) -> int:
-    """Parse and normalize a goal value. Accepts values like '02' as 2."""
-    if raw is None:
-        raise ValueError(f"Fehlender Wert bei Spiel {match_no}.")
-    raw = raw.strip()
+def parse_goal_value(raw: str | None, *, match_no: int, empty_as_zero: bool = False) -> int:
+    """Parse and normalize a goal value. Accepts values like '02' as 2.
+
+    If empty_as_zero=True, an empty field is interpreted as 0. This is used
+    after we already checked that not both fields of a match are empty.
+    """
+    raw = "" if raw is None else raw.strip()
     if raw == "":
+        if empty_as_zero:
+            return 0
         raise ValueError(f"Leerer Wert bei Spiel {match_no}.")
-    value = int(raw, 10)
+    try:
+        value = int(raw, 10)
+    except ValueError as exc:
+        raise ValueError(f"Ungültiges Ergebnis bei Spiel {match_no}.") from exc
     if value < 0 or value > 99:
         raise ValueError(f"Ungültiges Ergebnis bei Spiel {match_no}.")
     return value
@@ -216,8 +223,8 @@ def register_routes(app: Flask) -> None:
                 if (hg_raw is None or hg_raw.strip() == "") and (ag_raw is None or ag_raw.strip() == ""):
                     continue
                 try:
-                    hg = parse_goal_value(hg_raw, match_no=m.match_no)
-                    ag = parse_goal_value(ag_raw, match_no=m.match_no)
+                    hg = parse_goal_value(hg_raw, match_no=m.match_no, empty_as_zero=True)
+                    ag = parse_goal_value(ag_raw, match_no=m.match_no, empty_as_zero=True)
                 except (ValueError, TypeError):
                     flash(f"Ungültiges Ergebnis bei Spiel {m.match_no}.", "error")
                     return redirect(url_for("tips_group"))
@@ -314,8 +321,8 @@ def register_routes(app: Flask) -> None:
                         if (hg_raw is None or hg_raw.strip() == "") and (ag_raw is None or ag_raw.strip() == ""):
                             continue
                         try:
-                            hg = parse_goal_value(hg_raw, match_no=m.match_no)
-                            ag = parse_goal_value(ag_raw, match_no=m.match_no)
+                            hg = parse_goal_value(hg_raw, match_no=m.match_no, empty_as_zero=True)
+                            ag = parse_goal_value(ag_raw, match_no=m.match_no, empty_as_zero=True)
                         except (ValueError, TypeError):
                             flash(f"Ungültiges Ergebnis bei Spiel {m.match_no}.", "error")
                             return redirect(url_for("admin"))
