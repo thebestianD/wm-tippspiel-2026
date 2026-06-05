@@ -7,12 +7,12 @@ sdk: docker
 app_port: 7860
 pinned: false
 license: mit
-short_description: Halbautomatisches WM-2026-Tippspiel mit Gruppen, KO-Baum und Admin-Ergebnissen
+short_description: Halbautomatisches Tippspiel für die WM 2026
 ---
 
 # WM 2026 Tippspiel
 
-Kompakter Prototyp für ein halbautomatisches Tippspiel zur WM 2026.
+Halbautomatisches Tippspiel für die Fußball-WM 2026 mit Vorrunden-Tipps, automatischen Gruppentabellen, KO-Baum, Admin-Ergebnissen und Leaderboard.
 
 ## Funktionen
 
