@@ -68,14 +68,51 @@
     input.value = String(n);
     placeWarning(input, n);
   }
+  function normalizeScorePair(input) {
+    if (!isGoalInput(input)) return;
+  
+    const row = input.closest('.tip-row');
+    if (!row) return;
+  
+    const inputs = Array.from(row.querySelectorAll(
+      'input[name^="hg_"], input[name^="ag_"], input[name^="actual_hg_"], input[name^="actual_ag_"]'
+    ));
+  
+    if (inputs.length !== 2) return;
+  
+    const a = inputs[0];
+    const b = inputs[1];
+  
+    const aRaw = String(a.value || '').trim();
+    const bRaw = String(b.value || '').trim();
+  
+    if (aRaw === '' && bRaw === '') {
+      removeWarning(a);
+      removeWarning(b);
+      return;
+    }
+  
+    if (aRaw !== '' && bRaw === '') {
+      b.value = '0';
+      normalizeGoalInput(b);
+    }
+  
+    if (aRaw === '' && bRaw !== '') {
+      a.value = '0';
+      normalizeGoalInput(a);
+    }
+  
+    normalizeGoalInput(a);
+    normalizeGoalInput(b);
+  }
   document.addEventListener('blur', function (event) {
-    if (isGoalInput(event.target)) normalizeGoalInput(event.target);
+    if (isGoalInput(event.target)) normalizeScorePair(event.target);
   }, true);
   document.addEventListener('change', function (event) {
-    if (isGoalInput(event.target)) normalizeGoalInput(event.target);
+    if (isGoalInput(event.target)) normalizeScorePair(event.target);
   });
   document.addEventListener('submit', function (event) {
-    event.target.querySelectorAll('input[name^="hg_"], input[name^="ag_"], input[name^="actual_hg_"], input[name^="actual_ag_"]').forEach(normalizeGoalInput);
+    event.target.querySelectorAll('input[name^="hg_"], input[name^="ag_"], input[name^="actual_hg_"], input[name^="actual_ag_"]').forEach(normalizeScorePair);
   });
   document.addEventListener('DOMContentLoaded', function () {
     document.querySelectorAll('input[name^="hg_"], input[name^="ag_"], input[name^="actual_hg_"], input[name^="actual_ag_"]').forEach(normalizeGoalInput);
