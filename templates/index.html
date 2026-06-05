@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero">
+  <h1>WM 2026 Tippspiel</h1>
+  <p>Tippe alle Vorrundenspiele, lass daraus deinen KO-Baum generieren und wähle die Sieger bis zum Weltmeister.</p>
+</section>
+
+{% if not current_user %}
+<form class="card" method="post" action="{{ url_for('login') }}">
+  <h2>Als Teilnehmer starten</h2>
+  <label>Name</label>
+  <input name="name" placeholder="z. B. Sebastian" required>
+  <button type="submit">Einloggen / Anlegen</button>
+</form>
+{% else %}
+<div class="card">
+  <h2>Hallo {{ current_user.name }}</h2>
+  <p><a class="button" href="{{ url_for('tips_group') }}">Vorrunden-Tipps bearbeiten</a></p>
+</div>
+{% endif %}
+
+<div class="grid two">
+  <div class="card"><strong>{{ user_count }}</strong><br>Teilnehmer</div>
+  <div class="card"><strong>{{ match_count }}</strong><br>Spiele im System</div>
+</div>
+{% endblock %}

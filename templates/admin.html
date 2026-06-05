@@ -1,0 +1,316 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head compact-head">
+  <div>
+    <h1>Admin</h1>
+    <p>Ein eingetragenes Ergebnis wird als Endergebnis interpretiert. Es gibt keinen Spielstatus.</p>
+  </div>
+  <a class="button secondary" href="{{ url_for('admin_logout') }}">Admin logout</a>
+</div>
+
+<form method="post" class="tip-form" id="admin-results-form">
+  <input type="hidden" name="action" value="save_results">
+
+  <div class="page-section-head">
+    <h2>Endergebnisse Vorrunde</h2>
+    <p class="muted">Links Ergebnisse eintragen, rechts sieht der Admin die daraus entstehende Tabelle. Tiebreaker-Hinweise sind nur hier sichtbar.</p>
+  </div>
+
+  <div class="groups-grid">
+  {% for group_id in 'ABCDEFGHIJKL' %}
+    <section class="group-panel" data-group="{{ group_id }}">
+      <div class="group-panel-head">
+        <h2>Gruppe {{ group_id }}</h2>
+        {% if tables[group_id].admin_required %}<span class="mini-warn">Admin-Korrektur empfohlen</span>{% endif %}
+      </div>
+      <div class="group-tip-layout">
+        <div class="match-list compact-list">
+          {% for m in matches if m.phase == 'group' and m.group_id == group_id %}
+            {% set a = actual_by_no.get(m.match_no) %}
+            {% set info = match_info(m.match_no) %}
+            <div class="tip-row admin-result-row" data-group="{{ group_id }}" data-match="{{ m.match_no }}" data-home="{{ m.home_team_code }}" data-away="{{ m.away_team_code }}">
+              <div class="match-meta">
+                <strong>M{{ m.match_no }}</strong>
+                <span>{{ info.datetime_label }}</span>
+                <em>{{ info.broadcast }}</em>
+              </div>
+              <div class="team-name home"><img class="flag-img" src="{{ team_flag_url(m.home_team_code) }}" alt="">{{ teams[m.home_team_code].name }}</div>
+              <div class="score-inputs compact-score">
+                <input type="number" min="0" max="99" inputmode="numeric" name="actual_hg_{{ m.match_no }}" value="{{ a.home_goals if a and a.home_goals is not none else '' }}">
+                <span>:</span>
+                <input type="number" min="0" max="99" inputmode="numeric" name="actual_ag_{{ m.match_no }}" value="{{ a.away_goals if a and a.away_goals is not none else '' }}">
+              </div>
+              <div class="team-name away"><img class="flag-img" src="{{ team_flag_url(m.away_team_code) }}" alt="">{{ teams[m.away_team_code].name }}</div>
+            </div>
+          {% endfor %}
+        </div>
+        <aside class="live-table-box">
+          <div class="live-table-title">Live-Tabelle</div>
+          <table class="dense live-table">
+            <thead><tr><th>#</th><th>Team</th><th>Sp</th><th>Pkt</th><th>T</th><th>Diff</th></tr></thead>
+            <tbody id="admin-live-table-{{ group_id }}">
+            {% for row in tables[group_id].rows %}
+              <tr><td>{{ loop.index }}</td><td><img class="flag-img" src="{{ team_flag_url(row.team.code) }}" alt="">{{ row.team.name }}</td><td>{{ row.played }}</td><td>{{ row.points }}</td><td>{{ row.goals_for }}:{{ row.goals_against }}</td><td>{{ row.goal_diff }}</td></tr>
+            {% endfor %}
+            </tbody>
+          </table>
+          {% if tables[group_id].admin_required %}<div class="warn compact-warn">{{ tables[group_id].note }}</div>{% endif %}
+        </aside>
+      </div>
+    </section>
+  {% endfor %}
+  </div>
+
+  <div class="page-section-head with-top-space">
+    <h2>KO-Sieger</h2>
+    <p class="muted">Wie in der Nutzeransicht: Team anklicken, nächste Runde füllt sich. Danach Ergebnisse speichern.</p>
+  </div>
+
+  {% for no in range(73, 105) %}
+    <input type="hidden" name="actual_winner_{{ no }}" id="actual_winner_{{ no }}" value="{{ actual_by_no.get(no).winner_code if actual_by_no.get(no) and actual_by_no.get(no).winner_code else '' }}">
+  {% endfor %}
+
+  <div class="card bracket-card full-bleed admin-bracket-card">
+    <div class="save-strip dirty" id="admin-save-strip">
+      <div>
+        <strong>Admin-Ergebnisse</strong>
+        <span class="muted">Vorrunden-Ergebnisse und KO-Sieger werden zusammen gespeichert.</span>
+      </div>
+      <button class="button save-button" type="submit">Ergebnisse speichern</button>
+    </div>
+
+    {% macro render_match(no, row) %}
+      {% set bm = bracket.get(no) %}
+      {% if bm %}
+        {% set info = match_info(no) %}
+        <div class="bracket-match" id="admin-bm-{{ no }}" data-match="{{ no }}" style="grid-row: {{ row }} / span 2;">
+          <div class="bracket-match-meta"><strong>M{{ no }}</strong><span>{{ info.datetime_label }}</span><em>{{ info.broadcast }}</em></div>
+          <button class="team-pick home" type="button" data-side="home">–</button>
+          <button class="team-pick away" type="button" data-side="away">–</button>
+          <div class="ref-line">{{ bm.home_ref }} vs {{ bm.away_ref }}</div>
+        </div>
+      {% endif %}
+    {% endmacro %}
+
+    <div class="bracket-symmetric bracket-aligned" id="admin-bracket-grid">
+      <section class="bracket-round bracket-round-left outer">
+        <h2>Sechzehntelfinale</h2>
+        <div class="bracket-lane">
+          {{ render_match(74,1) }}{{ render_match(77,3) }}{{ render_match(73,5) }}{{ render_match(75,7) }}
+          {{ render_match(83,9) }}{{ render_match(84,11) }}{{ render_match(81,13) }}{{ render_match(82,15) }}
+        </div>
+      </section>
+      <section class="bracket-round bracket-round-left">
+        <h2>Achtelfinale</h2>
+        <div class="bracket-lane">{{ render_match(89,2) }}{{ render_match(90,6) }}{{ render_match(93,10) }}{{ render_match(94,14) }}</div>
+      </section>
+      <section class="bracket-round bracket-round-left">
+        <h2>Viertelfinale</h2>
+        <div class="bracket-lane">{{ render_match(97,4) }}{{ render_match(98,12) }}</div>
+      </section>
+      <section class="bracket-round bracket-round-left">
+        <h2>Halbfinale</h2>
+        <div class="bracket-lane">{{ render_match(101,8) }}</div>
+      </section>
+
+      <section class="bracket-center">
+        <div class="bracket-lane center-lane">
+          <h2 class="center-heading" style="grid-row: 6;">Finale</h2>
+          <div style="grid-row: 7 / span 2;">{{ render_match(104,1) }}</div>
+          <div class="champion-box" style="grid-row: 10 / span 1;">
+            <span>Weltmeister</span>
+            <strong id="admin-champion-label">Noch offen</strong>
+          </div>
+          <h2 class="center-heading" style="grid-row: 12;">Platz 3</h2>
+          <div style="grid-row: 13 / span 2;">{{ render_match(103,1) }}</div>
+        </div>
+      </section>
+
+      <section class="bracket-round bracket-round-right">
+        <h2>Halbfinale</h2>
+        <div class="bracket-lane">{{ render_match(102,8) }}</div>
+      </section>
+      <section class="bracket-round bracket-round-right">
+        <h2>Viertelfinale</h2>
+        <div class="bracket-lane">{{ render_match(99,4) }}{{ render_match(100,12) }}</div>
+      </section>
+      <section class="bracket-round bracket-round-right">
+        <h2>Achtelfinale</h2>
+        <div class="bracket-lane">{{ render_match(91,2) }}{{ render_match(92,6) }}{{ render_match(95,10) }}{{ render_match(96,14) }}</div>
+      </section>
+      <section class="bracket-round bracket-round-right outer">
+        <h2>Sechzehntelfinale</h2>
+        <div class="bracket-lane">
+          {{ render_match(76,1) }}{{ render_match(78,3) }}{{ render_match(79,5) }}{{ render_match(80,7) }}
+          {{ render_match(86,9) }}{{ render_match(88,11) }}{{ render_match(85,13) }}{{ render_match(87,15) }}
+        </div>
+      </section>
+    </div>
+  </div>
+</form>
+
+<form method="post" class="card">
+  <input type="hidden" name="action" value="save_overrides">
+  <h2>Tabellenpositionen korrigieren</h2>
+  <p>Kommagetrennte Team-Codes in gewünschter Reihenfolge eintragen, z. B. <code>MEX,KOR,RSA,CZE</code>. Leer lassen = automatische Reihenfolge.</p>
+  <label>Grund</label>
+  <input name="override_reason" value="Admin-Korrektur wegen nicht automatisch auflösbarem Tiebreaker">
+  <div class="grid two">
+    {% for group_id in 'ABCDEFGHIJKL' %}
+      <div>
+        <label>Gruppe {{ group_id }}</label>
+        <input name="override_{{ group_id }}" value="{{ overrides_by_group.get(group_id, [])|join(',') }}" placeholder="z. B. {{ override_placeholders[group_id] }}">
+        {% if tables[group_id].admin_required %}<div class="warn">{{ tables[group_id].note }}</div>{% endif %}
+      </div>
+    {% endfor %}
+  </div>
+  <button type="submit">Korrekturen speichern</button>
+</form>
+
+<script>
+const ADMIN_GROUP_TEAMS = {{ group_teams|tojson }};
+const ADMIN_GROUP_MATCHES = {{ group_matches|tojson }};
+const ADMIN_TEAMS = {{ teams_json|tojson }};
+const ADMIN_BRACKET = {{ bracket_json|tojson }};
+const ADMIN_MATCH_NOS = Object.keys(ADMIN_BRACKET).map(Number).sort((a,b) => a-b);
+let adminCurrent = {};
+let adminWinners = {};
+let adminLosers = {};
+
+function escapeHtml(text) {
+  return String(text).replace(/[&<>'"]/g, (ch) => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', "'":'&#39;', '"':'&quot;'}[ch]));
+}
+
+function teamCell(team) {
+  const flag = team.flag_url ? `<img class="flag-img" src="${team.flag_url}" alt="">` : '';
+  return `${flag}${team.name}`;
+}
+
+function adminEmptyRows(groupId) {
+  const rows = {};
+  for (const team of ADMIN_GROUP_TEAMS[groupId]) {
+    rows[team.code] = { ...team, played: 0, won: 0, drawn: 0, lost: 0, gf: 0, ga: 0, pts: 0 };
+  }
+  return rows;
+}
+
+function adminAddResult(rowA, rowB, hg, ag) {
+  rowA.played += 1; rowB.played += 1;
+  rowA.gf += hg; rowA.ga += ag; rowB.gf += ag; rowB.ga += hg;
+  if (hg > ag) { rowA.won += 1; rowB.lost += 1; rowA.pts += 3; }
+  else if (hg < ag) { rowB.won += 1; rowA.lost += 1; rowB.pts += 3; }
+  else { rowA.drawn += 1; rowB.drawn += 1; rowA.pts += 1; rowB.pts += 1; }
+}
+
+function renderAdminGroup(groupId) {
+  const rows = adminEmptyRows(groupId);
+  for (const match of ADMIN_GROUP_MATCHES[groupId]) {
+    const hgEl = document.querySelector(`[name="actual_hg_${match.no}"]`);
+    const agEl = document.querySelector(`[name="actual_ag_${match.no}"]`);
+    if (!hgEl || !agEl || hgEl.value === '' || agEl.value === '') continue;
+    const hg = Number(hgEl.value), ag = Number(agEl.value);
+    if (!Number.isInteger(hg) || !Number.isInteger(ag) || hg < 0 || ag < 0) continue;
+    adminAddResult(rows[match.home], rows[match.away], hg, ag);
+  }
+  const sorted = Object.values(rows).sort((a, b) =>
+    (b.pts - a.pts) || ((b.gf - b.ga) - (a.gf - a.ga)) || (b.gf - a.gf) || (a.rank - b.rank)
+  );
+  const tbody = document.getElementById(`admin-live-table-${groupId}`);
+  tbody.innerHTML = sorted.map((r, idx) => `
+    <tr><td>${idx + 1}</td><td>${teamCell(r)}</td><td>${r.played}</td><td>${r.pts}</td><td>${r.gf}:${r.ga}</td><td>${r.gf - r.ga}</td></tr>
+  `).join('');
+}
+
+function renderAllAdminGroups() {
+  Object.keys(ADMIN_GROUP_TEAMS).forEach(renderAdminGroup);
+}
+
+function adminTeamLabel(code) {
+  if (!code || !ADMIN_TEAMS[code]) return '<span class="placeholder-team">Noch offen</span>';
+  const flag = ADMIN_TEAMS[code].flag_url ? `<img class="flag-img" src="${ADMIN_TEAMS[code].flag_url}" alt="">` : '';
+  return `${flag}<span>${escapeHtml(ADMIN_TEAMS[code].name)}</span>`;
+}
+
+function adminSelectedWinner(no) {
+  const input = document.getElementById(`actual_winner_${no}`);
+  return input ? input.value || null : null;
+}
+
+function setAdminSelectedWinner(no, code) {
+  const input = document.getElementById(`actual_winner_${no}`);
+  if (input) input.value = code || '';
+}
+
+function otherTeam(home, away, winner) {
+  if (!winner) return null;
+  if (winner === home) return away || null;
+  if (winner === away) return home || null;
+  return null;
+}
+
+function adminResolveRef(ref) {
+  if (!ref) return null;
+  if (ref.startsWith('W')) return adminWinners[Number(ref.slice(1))] || null;
+  if (ref.startsWith('L')) return adminLosers[Number(ref.slice(1))] || null;
+  return null;
+}
+
+function recalculateAdminBracket() {
+  adminCurrent = {}; adminWinners = {}; adminLosers = {};
+  for (const no of ADMIN_MATCH_NOS) {
+    const m = ADMIN_BRACKET[String(no)];
+    const home = (m.home_ref && (m.home_ref.startsWith('W') || m.home_ref.startsWith('L'))) ? adminResolveRef(m.home_ref) : m.home_code;
+    const away = (m.away_ref && (m.away_ref.startsWith('W') || m.away_ref.startsWith('L'))) ? adminResolveRef(m.away_ref) : m.away_code;
+    let winner = adminSelectedWinner(no);
+    if (!home || !away || ![home, away].includes(winner)) {
+      winner = null;
+      setAdminSelectedWinner(no, '');
+    }
+    const loser = otherTeam(home, away, winner);
+    adminCurrent[no] = { home, away, winner, loser };
+    adminWinners[no] = winner;
+    adminLosers[no] = loser;
+  }
+}
+
+function renderAdminBracket() {
+  recalculateAdminBracket();
+  for (const no of ADMIN_MATCH_NOS) {
+    const box = document.getElementById(`admin-bm-${no}`);
+    if (!box) continue;
+    const state = adminCurrent[no];
+    const homeBtn = box.querySelector('.team-pick.home');
+    const awayBtn = box.querySelector('.team-pick.away');
+    homeBtn.innerHTML = adminTeamLabel(state.home);
+    awayBtn.innerHTML = adminTeamLabel(state.away);
+    homeBtn.dataset.team = state.home || '';
+    awayBtn.dataset.team = state.away || '';
+    homeBtn.disabled = !state.home || !state.away;
+    awayBtn.disabled = !state.home || !state.away;
+    homeBtn.classList.toggle('selected', state.winner === state.home && !!state.home);
+    awayBtn.classList.toggle('selected', state.winner === state.away && !!state.away);
+    box.classList.toggle('resolved', !!state.winner);
+  }
+  const champion = adminCurrent[104] && adminCurrent[104].winner ? adminTeamLabel(adminCurrent[104].winner) : '<span class="placeholder-team">Noch offen</span>';
+  document.getElementById('admin-champion-label').innerHTML = champion;
+}
+
+document.querySelectorAll('.admin-result-row input').forEach(input => {
+  input.addEventListener('input', () => renderAdminGroup(input.closest('.admin-result-row').dataset.group));
+});
+
+document.getElementById('admin-bracket-grid').addEventListener('click', (ev) => {
+  const btn = ev.target.closest('.team-pick');
+  if (!btn || btn.disabled) return;
+  const box = btn.closest('.bracket-match');
+  const no = Number(box.dataset.match);
+  const code = btn.dataset.team || '';
+  if (!code) return;
+  setAdminSelectedWinner(no, adminSelectedWinner(no) === code ? '' : code);
+  renderAdminBracket();
+});
+
+renderAllAdminGroups();
+renderAdminBracket();
+</script>
+{% endblock %}

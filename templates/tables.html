@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head compact-head">
+  <div>
+    <h1>Live-Ergebnisse</h1>
+    <p>Hier siehst du die vom Admin eingetragenen Endergebnisse und die daraus entstehenden Gruppentabellen.</p>
+  </div>
+</div>
+
+{% if current_user %}
+  <div class="score-legend card compact-card">
+    <strong>Deine Vorrunden-Punkte:</strong>
+    <span class="score-badge score-3">3 P exaktes Ergebnis</span>
+    <span class="score-badge score-2">2 P Tendenz + Tordifferenz</span>
+    <span class="score-badge score-1">1 P Tendenz</span>
+    <span class="score-badge score-0">0 P falsche Tendenz</span>
+  </div>
+{% else %}
+  <div class="notice">Logge dich ein, um neben den Live-Ergebnissen deine Punkte je Vorrundenspiel zu sehen.</div>
+{% endif %}
+
+<div class="live-results-wrap full-bleed">
+  <div class="groups-grid results-grid">
+  {% for group_id in 'ABCDEFGHIJKL' %}
+    <section class="group-panel live-results-panel">
+      <div class="group-panel-head">
+        <h2>Gruppe {{ group_id }}</h2>
+      </div>
+      <div class="group-tip-layout results-layout">
+        <div class="compact-list">
+          {% for m in group_matches[group_id] %}
+            {% set a = actual_by_no.get(m.match_no) %}
+            {% set p = pred_by_no.get(m.match_no) %}
+            {% set sc = match_scores.get(m.match_no) %}
+            {% set info = match_info(m.match_no) %}
+            <div class="tip-row result-row {{ sc.class if sc else '' }}">
+              <div class="match-meta">
+                <strong>M{{ m.match_no }}</strong>
+                <span>{{ info.datetime_label }}</span>
+                <em>{{ info.broadcast }}</em>
+              </div>
+              <div class="team-name home"><img class="flag-img" src="{{ team_flag_url(m.home_team_code) }}" alt="">{{ teams[m.home_team_code].name }}</div>
+              <div class="score-inputs compact-score live-score-display">
+                {% if a and a.home_goals is not none and a.away_goals is not none %}
+                  <strong>{{ a.home_goals }}:{{ a.away_goals }}</strong>
+                {% else %}
+                  <span class="muted">offen</span>
+                {% endif %}
+                {% if current_user and sc %}<span class="score-pill">{{ sc.label }}</span>{% endif %}
+              </div>
+              <div class="team-name away"><img class="flag-img" src="{{ team_flag_url(m.away_team_code) }}" alt="">{{ teams[m.away_team_code].name }}</div>
+            </div>
+            {% if current_user and a and a.home_goals is not none and a.away_goals is not none %}
+              <div class="my-tip-line small muted">
+                Dein Tipp:
+                {% if p and p.home_goals is not none and p.away_goals is not none %}
+                  {{ p.home_goals }}:{{ p.away_goals }}
+                {% else %}
+                  kein Tipp
+                {% endif %}
+              </div>
+            {% endif %}
+          {% endfor %}
+        </div>
+        <aside class="live-table-box">
+          <div class="live-table-title">Tabelle</div>
+          <table class="dense live-table">
+            <thead><tr><th>#</th><th>Team</th><th>Sp</th><th>Pkt</th><th>T</th><th>Diff</th></tr></thead>
+            <tbody>
+            {% for row in tables[group_id].rows %}
+              <tr>
+                <td>{{ loop.index }}</td>
+                <td><img class="flag-img" src="{{ team_flag_url(row.team.code) }}" alt="">{{ row.team.name }}</td>
+                <td>{{ row.played }}</td>
+                <td>{{ row.points }}</td>
+                <td>{{ row.goals_for }}:{{ row.goals_against }}</td>
+                <td>{{ row.goal_diff }}</td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </aside>
+      </div>
+    </section>
+  {% endfor %}
+  </div>
+</div>
+{% endblock %}

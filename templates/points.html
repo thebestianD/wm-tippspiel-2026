@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head compact-head">
+  <div>
+    <h1>Punkte-Regeln</h1>
+    <p>So wird die Rangliste berechnet. KO-Spiele werden bewusst nicht nach Ergebnis oder exakter Paarung bewertet.</p>
+  </div>
+</div>
+
+<section class="card compact-card">
+  <h2>Vorrunde</h2>
+  <table class="dense scoring-table">
+    <tbody>
+      <tr><th>Exaktes Ergebnis</th><td>{{ scoring.score_exact_group }} Punkte</td></tr>
+      <tr><th>Richtige Tendenz</th><td>{{ scoring.score_outcome_group }} Punkte</td></tr>
+      <tr><th>Bonus: richtige Tordifferenz bei richtiger Tendenz</th><td>+{{ scoring.score_goal_diff_bonus }} Punkt</td></tr>
+    </tbody>
+  </table>
+  <p class="muted small">Beispiel: Tatsächlich 2:1, getippt 1:0 ergibt richtige Tendenz plus Tordifferenz-Bonus. Tatsächlich 2:1, getippt 3:1 ergibt nur richtige Tendenz.</p>
+</section>
+
+<section class="card compact-card">
+  <h2>KO-Runden</h2>
+  <p>Die KO-Wertung zählt, welche Mannschaften du korrekt für das Erreichen einer Runde vorhergesagt hast. Es gibt keine Punkte für exakte KO-Ergebnisse und keine Punkte für eine exakte Paarung.</p>
+  <table class="dense scoring-table">
+    <tbody>
+      <tr><th>Team erreicht Sechzehntelfinale</th><td>{{ scoring.score_reaches_r32 }} Punkt je Team</td></tr>
+      <tr><th>Team erreicht Achtelfinale</th><td>{{ scoring.score_reaches_r16 }} Punkte je Team</td></tr>
+      <tr><th>Team erreicht Viertelfinale</th><td>{{ scoring.score_reaches_qf }} Punkte je Team</td></tr>
+      <tr><th>Team erreicht Halbfinale</th><td>{{ scoring.score_reaches_sf }} Punkte je Team</td></tr>
+      <tr><th>Team erreicht Finale</th><td>{{ scoring.score_reaches_final }} Punkte je Team</td></tr>
+      <tr><th>Weltmeister korrekt</th><td>{{ scoring.score_champion }} Punkte</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section class="card compact-card">
+  <h2>Admin-Korrekturen</h2>
+  <p>Wenn eine echte Gruppentabelle wegen nicht automatisierter Kriterien korrigiert wird, verwendet die Rangliste die Admin-Reihenfolge als offizielle Grundlage.</p>
+</section>
+{% endblock %}

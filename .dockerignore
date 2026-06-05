@@ -1,0 +1,7 @@
+.venv
+__pycache__
+*.pyc
+wm_tippspiel.db
+.pytest_cache
+.env
+.git

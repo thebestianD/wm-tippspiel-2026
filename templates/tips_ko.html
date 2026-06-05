@@ -1,0 +1,224 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head compact-head">
+  <div>
+    <h1>KO-Baum tippen</h1>
+    <p>Klicke jeweils das Team an, das weiterkommt. Der Turnierbaum füllt sich automatisch von außen zur Mitte.</p>
+  </div>
+  <a class="button secondary" href="{{ url_for('tips_group') }}">Zur Vorrunde</a>
+</div>
+{% if group_pred_count < 72 %}
+  <div class="flash error">Du hast erst {{ group_pred_count }}/72 Vorrundenspiele getippt. Der KO-Baum kann trotzdem angezeigt werden, ist aber erst nach allen Tipps sinnvoll.</div>
+{% endif %}
+
+<form method="post" class="card bracket-card full-bleed" id="bracket-form">
+  {% for no in range(73, 105) %}
+    <input type="hidden" name="winner_{{ no }}" id="winner_{{ no }}" value="{{ pred_by_no.get(no).winner_code if pred_by_no.get(no) and pred_by_no.get(no).winner_code else '' }}">
+  {% endfor %}
+
+  <div class="save-strip" id="save-strip">
+    <div>
+      <strong id="save-status">Gespeicherter Stand</strong>
+      <span class="muted">Änderungen im KO-Baum werden erst übernommen, wenn du speicherst.</span>
+    </div>
+    <button class="button save-button" type="submit" {% if locked() %}disabled{% endif %}>KO-Tipps speichern</button>
+  </div>
+
+  {% macro render_match(no, row) %}
+    {% set bm = bracket.get(no) %}
+    {% if bm %}
+      {% set info = match_info(no) %}
+      <div class="bracket-match" id="bm-{{ no }}" data-match="{{ no }}" style="grid-row: {{ row }} / span 2;">
+        <div class="bracket-match-meta"><strong>M{{ no }}</strong><span>{{ info.datetime_label }}</span><em>{{ info.broadcast }}</em></div>
+        <button class="team-pick home" type="button" data-side="home" {% if locked() %}disabled{% endif %}>–</button>
+        <button class="team-pick away" type="button" data-side="away" {% if locked() %}disabled{% endif %}>–</button>
+        <div class="ref-line">{{ bm.home_ref }} vs {{ bm.away_ref }}</div>
+      </div>
+    {% endif %}
+  {% endmacro %}
+
+  <div class="bracket-symmetric bracket-aligned" id="bracket-grid">
+    <section class="bracket-round bracket-round-left outer">
+      <h2>Sechzehntelfinale</h2>
+      <div class="bracket-lane">
+        {{ render_match(74,1) }}{{ render_match(77,3) }}{{ render_match(73,5) }}{{ render_match(75,7) }}
+        {{ render_match(83,9) }}{{ render_match(84,11) }}{{ render_match(81,13) }}{{ render_match(82,15) }}
+      </div>
+    </section>
+    <section class="bracket-round bracket-round-left">
+      <h2>Achtelfinale</h2>
+      <div class="bracket-lane">
+        {{ render_match(89,2) }}{{ render_match(90,6) }}{{ render_match(93,10) }}{{ render_match(94,14) }}
+      </div>
+    </section>
+    <section class="bracket-round bracket-round-left">
+      <h2>Viertelfinale</h2>
+      <div class="bracket-lane">
+        {{ render_match(97,4) }}{{ render_match(98,12) }}
+      </div>
+    </section>
+    <section class="bracket-round bracket-round-left">
+      <h2>Halbfinale</h2>
+      <div class="bracket-lane">
+        {{ render_match(101,8) }}
+      </div>
+    </section>
+
+    <section class="bracket-center">
+      <div class="bracket-lane center-lane">
+        <h2 class="center-heading" style="grid-row: 6;">Finale</h2>
+        <div style="grid-row: 7 / span 2;">{{ render_match(104,1) }}</div>
+        <div class="champion-box" style="grid-row: 10 / span 1;">
+          <span>Weltmeister</span>
+          <strong id="champion-label">Noch offen</strong>
+        </div>
+        <h2 class="center-heading" style="grid-row: 12;">Platz 3</h2>
+        <div style="grid-row: 13 / span 2;">{{ render_match(103,1) }}</div>
+      </div>
+    </section>
+
+    <section class="bracket-round bracket-round-right">
+      <h2>Halbfinale</h2>
+      <div class="bracket-lane">{{ render_match(102,8) }}</div>
+    </section>
+    <section class="bracket-round bracket-round-right">
+      <h2>Viertelfinale</h2>
+      <div class="bracket-lane">{{ render_match(99,4) }}{{ render_match(100,12) }}</div>
+    </section>
+    <section class="bracket-round bracket-round-right">
+      <h2>Achtelfinale</h2>
+      <div class="bracket-lane">{{ render_match(91,2) }}{{ render_match(92,6) }}{{ render_match(95,10) }}{{ render_match(96,14) }}</div>
+    </section>
+    <section class="bracket-round bracket-round-right outer">
+      <h2>Sechzehntelfinale</h2>
+      <div class="bracket-lane">
+        {{ render_match(76,1) }}{{ render_match(78,3) }}{{ render_match(79,5) }}{{ render_match(80,7) }}
+        {{ render_match(86,9) }}{{ render_match(88,11) }}{{ render_match(85,13) }}{{ render_match(87,15) }}
+      </div>
+    </section>
+  </div>
+</form>
+
+<script>
+const TEAMS = {{ teams_json|tojson }};
+const BRACKET = {{ bracket_json|tojson }};
+const MATCH_NOS = Object.keys(BRACKET).map(Number).sort((a,b) => a-b);
+const LOCKED = {{ 'true' if locked() else 'false' }};
+let current = {};
+let winners = {};
+let losers = {};
+let dirty = false;
+
+function escapeHtml(text) {
+  return String(text).replace(/[&<>'"]/g, (ch) => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', "'":'&#39;', '"':'&quot;'}[ch]));
+}
+
+function teamName(code) {
+  return code && TEAMS[code] ? TEAMS[code].name : 'Noch offen';
+}
+
+function teamLabel(code) {
+  if (!code || !TEAMS[code]) return '<span class="placeholder-team">Noch offen</span>';
+  const flag = TEAMS[code].flag_url ? `<img class="flag-img" src="${TEAMS[code].flag_url}" alt="">` : '';
+  return `${flag}<span>${escapeHtml(TEAMS[code].name)}</span>`;
+}
+
+function selectedWinner(no) {
+  const input = document.getElementById(`winner_${no}`);
+  return input ? input.value || null : null;
+}
+
+function setSelectedWinner(no, code) {
+  const input = document.getElementById(`winner_${no}`);
+  if (input) input.value = code || '';
+}
+
+function otherTeam(home, away, winner) {
+  if (!winner) return null;
+  if (winner === home) return away || null;
+  if (winner === away) return home || null;
+  return null;
+}
+
+function resolveRef(ref) {
+  if (!ref) return null;
+  if (ref.startsWith('W')) return winners[Number(ref.slice(1))] || null;
+  if (ref.startsWith('L')) return losers[Number(ref.slice(1))] || null;
+  return null;
+}
+
+function recalculate() {
+  current = {}; winners = {}; losers = {};
+  for (const no of MATCH_NOS) {
+    const m = BRACKET[String(no)];
+    const home = (m.home_ref && (m.home_ref.startsWith('W') || m.home_ref.startsWith('L'))) ? resolveRef(m.home_ref) : m.home_code;
+    const away = (m.away_ref && (m.away_ref.startsWith('W') || m.away_ref.startsWith('L'))) ? resolveRef(m.away_ref) : m.away_code;
+    let winner = selectedWinner(no);
+    if (!home || !away || ![home, away].includes(winner)) {
+      winner = null;
+      setSelectedWinner(no, '');
+    }
+    const loser = otherTeam(home, away, winner);
+    current[no] = { home, away, winner, loser };
+    winners[no] = winner;
+    losers[no] = loser;
+  }
+}
+
+function renderBracket() {
+  recalculate();
+  for (const no of MATCH_NOS) {
+    const box = document.getElementById(`bm-${no}`);
+    if (!box) continue;
+    const state = current[no];
+    const homeBtn = box.querySelector('.team-pick.home');
+    const awayBtn = box.querySelector('.team-pick.away');
+    homeBtn.innerHTML = teamLabel(state.home);
+    awayBtn.innerHTML = teamLabel(state.away);
+    homeBtn.dataset.team = state.home || '';
+    awayBtn.dataset.team = state.away || '';
+    homeBtn.disabled = LOCKED || !state.home || !state.away;
+    awayBtn.disabled = LOCKED || !state.home || !state.away;
+    homeBtn.classList.toggle('selected', state.winner === state.home && !!state.home);
+    awayBtn.classList.toggle('selected', state.winner === state.away && !!state.away);
+    box.classList.toggle('resolved', !!state.winner);
+  }
+  const champion = current[104] && current[104].winner ? teamLabel(current[104].winner) : '<span class="placeholder-team">Noch offen</span>';
+  document.getElementById('champion-label').innerHTML = champion;
+}
+
+function setDirty(value) {
+  dirty = value;
+  const status = document.getElementById('save-status');
+  const strip = document.getElementById('save-strip');
+  if (!status || !strip) return;
+  strip.classList.toggle('dirty', dirty);
+  if (dirty) {
+    status.textContent = 'Nicht gespeichert';
+  } else {
+    status.textContent = 'Gespeicherter Stand';
+  }
+}
+
+document.getElementById('bracket-grid').addEventListener('click', (ev) => {
+  const btn = ev.target.closest('.team-pick');
+  if (!btn || btn.disabled) return;
+  const box = btn.closest('.bracket-match');
+  const no = Number(box.dataset.match);
+  const code = btn.dataset.team || '';
+  if (!code) return;
+  setSelectedWinner(no, selectedWinner(no) === code ? '' : code);
+  renderBracket();
+  setDirty(true);
+});
+
+document.getElementById('bracket-form').addEventListener('submit', () => setDirty(false));
+window.addEventListener('beforeunload', (ev) => {
+  if (!dirty) return;
+  ev.preventDefault();
+  ev.returnValue = '';
+});
+
+renderBracket();
+</script>
+{% endblock %}

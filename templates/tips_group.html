@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head compact-head">
+  <div>
+    <h1>Vorrunde tippen</h1>
+    <p>Links trägst du deine Ergebnisse ein, rechts siehst du sofort die daraus entstehende Live-Tabelle der Gruppe.</p>
+  </div>
+  <a class="button secondary" href="{{ url_for('tips_ko') }}">Zum KO-Baum</a>
+</div>
+
+<form method="post" class="tip-form">
+  <div class="groups-grid">
+  {% for group_id in 'ABCDEFGHIJKL' %}
+    <section class="group-panel" data-group="{{ group_id }}">
+      <div class="group-panel-head">
+        <h2>Gruppe {{ group_id }}</h2>
+      </div>
+      <div class="group-tip-layout">
+        <div class="match-list compact-list">
+          {% for m in matches if m.group_id == group_id %}
+            {% set p = preds.get(m.match_no) %}
+            {% set info = match_info(m.match_no) %}
+            <div class="tip-row" data-group="{{ group_id }}" data-match="{{ m.match_no }}" data-home="{{ m.home_team_code }}" data-away="{{ m.away_team_code }}">
+              <div class="match-meta">
+                <strong>M{{ m.match_no }}</strong>
+                <span>{{ info.datetime_label }}</span>
+                <em>{{ info.broadcast }}</em>
+              </div>
+              <div class="team-name home"><img class="flag-img" src="{{ team_flag_url(m.home_team_code) }}" alt="">{{ teams[m.home_team_code].name }}</div>
+              <div class="score-inputs compact-score">
+                <input type="number" min="0" max="99" inputmode="numeric" name="hg_{{ m.match_no }}" value="{{ p.home_goals if p and p.home_goals is not none else '' }}" {% if locked() %}disabled{% endif %}>
+                <span>:</span>
+                <input type="number" min="0" max="99" inputmode="numeric" name="ag_{{ m.match_no }}" value="{{ p.away_goals if p and p.away_goals is not none else '' }}" {% if locked() %}disabled{% endif %}>
+              </div>
+              <div class="team-name away"><img class="flag-img" src="{{ team_flag_url(m.away_team_code) }}" alt="">{{ teams[m.away_team_code].name }}</div>
+            </div>
+          {% endfor %}
+        </div>
+        <aside class="live-table-box">
+          <div class="live-table-title">Live-Tabelle</div>
+          <table class="dense live-table">
+            <thead><tr><th>#</th><th>Team</th><th>Sp</th><th>Pkt</th><th>T</th><th>Diff</th></tr></thead>
+            <tbody id="live-table-{{ group_id }}">
+            {% for row in tables[group_id].rows %}
+              <tr><td>{{ loop.index }}</td><td><img class="flag-img" src="{{ team_flag_url(row.team.code) }}" alt="">{{ row.team.name }}</td><td>{{ row.played }}</td><td>{{ row.points }}</td><td>{{ row.goals_for }}:{{ row.goals_against }}</td><td>{{ row.goal_diff }}</td></tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </aside>
+      </div>
+    </section>
+  {% endfor %}
+  </div>
+  <div class="sticky-actions">
+    <button type="submit" {% if locked() %}disabled{% endif %}>Vorrunden-Tipps speichern</button>
+    <span class="muted">Danach wird dein KO-Baum aus diesen Tipps erzeugt.</span>
+  </div>
+</form>
+
+<script>
+const GROUP_TEAMS = {{ group_teams|tojson }};
+const GROUP_MATCHES = {{ group_matches|tojson }};
+
+function emptyRows(groupId) {
+  const rows = {};
+  for (const team of GROUP_TEAMS[groupId]) {
+    rows[team.code] = { ...team, played: 0, won: 0, drawn: 0, lost: 0, gf: 0, ga: 0, pts: 0 };
+  }
+  return rows;
+}
+
+function addResult(rowA, rowB, hg, ag) {
+  rowA.played += 1; rowB.played += 1;
+  rowA.gf += hg; rowA.ga += ag; rowB.gf += ag; rowB.ga += hg;
+  if (hg > ag) { rowA.won += 1; rowB.lost += 1; rowA.pts += 3; }
+  else if (hg < ag) { rowB.won += 1; rowA.lost += 1; rowB.pts += 3; }
+  else { rowA.drawn += 1; rowB.drawn += 1; rowA.pts += 1; rowB.pts += 1; }
+}
+
+function teamCell(team) {
+  const flag = team.flag_url ? `<img class="flag-img" src="${team.flag_url}" alt="">` : '';
+  return `${flag}${team.name}`;
+}
+
+function renderGroup(groupId) {
+  const rows = emptyRows(groupId);
+  for (const match of GROUP_MATCHES[groupId]) {
+    const hgEl = document.querySelector(`[name="hg_${match.no}"]`);
+    const agEl = document.querySelector(`[name="ag_${match.no}"]`);
+    if (!hgEl || !agEl || hgEl.value === '' || agEl.value === '') continue;
+    const hg = Number(hgEl.value), ag = Number(agEl.value);
+    if (!Number.isInteger(hg) || !Number.isInteger(ag) || hg < 0 || ag < 0) continue;
+    addResult(rows[match.home], rows[match.away], hg, ag);
+  }
+  const sorted = Object.values(rows).sort((a, b) =>
+    (b.pts - a.pts) || ((b.gf - b.ga) - (a.gf - a.ga)) || (b.gf - a.gf) || (a.rank - b.rank)
+  );
+  const tbody = document.getElementById(`live-table-${groupId}`);
+  tbody.innerHTML = sorted.map((r, idx) => `
+    <tr>
+      <td>${idx + 1}</td><td>${teamCell(r)}</td><td>${r.played}</td><td>${r.pts}</td><td>${r.gf}:${r.ga}</td><td>${r.gf - r.ga}</td>
+    </tr>`).join('');
+}
+
+function renderAllGroups() {
+  Object.keys(GROUP_TEAMS).forEach(renderGroup);
+}
+
+document.querySelectorAll('.tip-row input').forEach(input => {
+  input.addEventListener('input', () => renderGroup(input.closest('.tip-row').dataset.group));
+});
+renderAllGroups();
+</script>
+{% endblock %}

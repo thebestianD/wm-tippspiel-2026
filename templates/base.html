@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ app_name }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="{{ url_for('index') }}">{{ app_name }}</a>
+  <nav>
+    <a href="{{ url_for('tips_group') }}">Tipps</a>
+    <a href="{{ url_for('tables') }}">Live-Ergebnisse</a>
+    <a href="{{ url_for('points') }}">Punkte</a>
+    <a href="{{ url_for('leaderboard') }}">Leaderboard</a>
+    <a href="{{ url_for('admin') }}">Admin</a>
+    {% if current_user %}<a href="{{ url_for('logout') }}">Logout {{ current_user.name }}</a>{% endif %}
+  </nav>
+</header>
+<main class="container">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+      <div class="flash {{ category }}">{{ message }}</div>
+    {% endfor %}
+  {% endwith %}
+  {% if locked() %}
+    <div class="notice">Die Tippabgabe ist gesperrt. Lock-Zeit: {{ lock_at_de() }}</div>
+  {% else %}
+    <div class="notice">Tippabgabe offen bis {{ lock_at_de() }}.</div>
+  {% endif %}
+  {% block content %}{% endblock %}
+</main>
+<footer class="footer">
+  Prototyp: Admin trägt Endergebnisse manuell ein; KO-Wertung nur nach korrekt vorhergesagtem Erreichen der Runden.
+</footer>
+
+<script>
+(function () {
+  function isGoalInput(el) {
+    return el && el.matches && el.matches('input[name^="hg_"], input[name^="ag_"], input[name^="actual_hg_"], input[name^="actual_ag_"]');
+  }
+  function warningId(input) {
+    return 'goal-warning-' + input.name.replace(/[^a-zA-Z0-9_-]/g, '-');
+  }
+  function removeWarning(input) {
+    const old = document.getElementById(warningId(input));
+    if (old) old.remove();
+    input.classList.remove('goal-high');
+  }
+  function placeWarning(input, value) {
+    removeWarning(input);
+    if (value < 10) return;
+    input.classList.add('goal-high');
+    const note = document.createElement('div');
+    note.id = warningId(input);
+    note.className = 'mini-warn goal-warning';
+    note.textContent = 'Bitte prüfen: Ist dieses zweistellige Ergebnis wirklich gemeint?';
+    const container = input.closest('.score-inputs') || input.parentElement;
+    if (container) container.insertAdjacentElement('afterend', note);
+  }
+  function normalizeGoalInput(input) {
+    if (!isGoalInput(input)) return;
+    const raw = String(input.value || '').trim();
+    if (raw === '') { removeWarning(input); return; }
+    const n = Number.parseInt(raw, 10);
+    if (Number.isNaN(n) || n < 0) { removeWarning(input); return; }
+    input.value = String(n);
+    placeWarning(input, n);
+  }
+  document.addEventListener('blur', function (event) {
+    if (isGoalInput(event.target)) normalizeGoalInput(event.target);
+  }, true);
+  document.addEventListener('change', function (event) {
+    if (isGoalInput(event.target)) normalizeGoalInput(event.target);
+  });
+  document.addEventListener('submit', function (event) {
+    event.target.querySelectorAll('input[name^="hg_"], input[name^="ag_"], input[name^="actual_hg_"], input[name^="actual_ag_"]').forEach(normalizeGoalInput);
+  });
+  document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('input[name^="hg_"], input[name^="ag_"], input[name^="actual_hg_"], input[name^="actual_ag_"]').forEach(normalizeGoalInput);
+  });
+})();
+</script>
+</body>
+</html>
