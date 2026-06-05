@@ -207,8 +207,10 @@ function renderAdminGroup(groupId) {
   for (const match of ADMIN_GROUP_MATCHES[groupId]) {
     const hgEl = document.querySelector(`[name="actual_hg_${match.no}"]`);
     const agEl = document.querySelector(`[name="actual_ag_${match.no}"]`);
-    if (!hgEl || !agEl || hgEl.value === '' || agEl.value === '') continue;
-    const hg = Number(hgEl.value), ag = Number(agEl.value);
+    if (!hgEl || !agEl) continue;
+    if (hgEl.value === '' && agEl.value === '') continue;
+    const hg = hgEl.value === '' ? 0 : Number(hgEl.value);
+    const ag = agEl.value === '' ? 0 : Number(agEl.value);
     if (!Number.isInteger(hg) || !Number.isInteger(ag) || hg < 0 || ag < 0) continue;
     adminAddResult(rows[match.home], rows[match.away], hg, ag);
   }
