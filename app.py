@@ -534,7 +534,7 @@ def register_routes(app: Flask) -> None:
         scoring = {key: int(settings.get(key, default)) for key, default in defaults.items()}
         return render_template("points.html", scoring=scoring)
 
-        @app.route("/leaderboard")
+    @app.route("/leaderboard")
     def leaderboard():
         users = User.query.order_by(User.name).all()
         overrides = GroupOverride.query.all()
