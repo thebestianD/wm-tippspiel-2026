@@ -154,6 +154,165 @@ def score_group_prediction(pred: Prediction | None, actual: ActualResult | None)
         return {"points": 1, "class": "score-1", "label": "1 P"}
     return {"points": 0, "class": "score-0", "label": "0 P"}
 
+def match_sort_key(match: Match) -> tuple[str, str, int]:
+    raw = MATCH_INFO.get(match.match_no, {})
+    return (raw.get("date_et") or "9999-12-31", raw.get("time_et") or "99:99", match.match_no)
+
+
+def group_result_entered(match: Match, actual_by_no: dict[int, ActualResult]) -> bool:
+    actual = actual_by_no.get(match.match_no)
+    return bool(actual and actual.home_goals is not None and actual.away_goals is not None)
+
+
+def ko_winner_entered(match: Match, actual_by_no: dict[int, ActualResult]) -> bool:
+    actual = actual_by_no.get(match.match_no)
+    return bool(actual and actual.winner_code)
+
+
+def all_group_results_entered(matches: list[Match], actual_by_no: dict[int, ActualResult]) -> bool:
+    group_matches = [m for m in matches if m.phase == "group"]
+    if not group_matches:
+        return False
+    return all(group_result_entered(m, actual_by_no) for m in group_matches)
+
+
+def format_tip(pred: Prediction | None) -> str:
+    if not pred:
+        return "–"
+    if pred.home_goals is not None and pred.away_goals is not None:
+        return f"{pred.home_goals}:{pred.away_goals}"
+    if pred.winner_code:
+        return pred.winner_code
+    return "–"
+
+
+KO_PHASES = [
+    ("r32", "Sechzehntelfinale", list(range(73, 89))),
+    ("r16", "Achtelfinale", list(range(89, 97))),
+    ("qf", "Viertelfinale", list(range(97, 101))),
+    ("sf", "Halbfinale", [101, 102]),
+    ("final", "Finale", [104]),
+]
+
+
+def current_ko_stage(matches: list[Match], actual_by_no: dict[int, ActualResult]) -> dict:
+    matches_by_no = {m.match_no: m for m in matches}
+
+    for stage, label, match_nos in KO_PHASES:
+        stage_matches = [matches_by_no[no] for no in match_nos if no in matches_by_no]
+        if not stage_matches or not all(ko_winner_entered(m, actual_by_no) for m in stage_matches):
+            return {"stage": stage, "label": label, "match_nos": match_nos}
+
+    return {"stage": "champion", "label": "Weltmeister", "match_nos": [104]}
+
+
+def build_live_group_context(users: list[User], matches: list[Match], actual_by_no: dict[int, ActualResult]) -> dict:
+    group_matches = [m for m in matches if m.phase == "group"]
+
+    completed = [m for m in group_matches if group_result_entered(m, actual_by_no)]
+    open_matches = [m for m in group_matches if not group_result_entered(m, actual_by_no)]
+
+    last_matches = sorted(completed, key=match_sort_key)[-3:]
+    next_matches = sorted(open_matches, key=match_sort_key)[:3]
+
+    relevant_nos = [m.match_no for m in last_matches + next_matches]
+
+    predictions = []
+    if relevant_nos:
+        predictions = Prediction.query.filter(Prediction.match_no.in_(relevant_nos)).all()
+
+    pred_by_user_match = {(p.user_id, p.match_no): p for p in predictions}
+
+    def rows_for_match(match: Match, scored: bool) -> list[dict]:
+        rows = []
+        actual = actual_by_no.get(match.match_no)
+
+        for user in users:
+            pred = pred_by_user_match.get((user.id, match.match_no))
+            score = score_group_prediction(pred, actual) if scored else None
+
+            rows.append({
+                "user": user,
+                "tip": format_tip(pred),
+                "score": score,
+            })
+
+        return rows
+
+    return {
+        "mode": "group",
+        "last_matches": [
+            {
+                "match": match,
+                "actual": actual_by_no.get(match.match_no),
+                "rows": rows_for_match(match, True),
+            }
+            for match in last_matches
+        ],
+        "next_matches": [
+            {
+                "match": match,
+                "actual": None,
+                "rows": rows_for_match(match, False),
+            }
+            for match in next_matches
+        ],
+    }
+
+
+def build_live_ko_context(
+    users: list[User],
+    matches: list[Match],
+    teams_db: list[Team],
+    actuals: list[ActualResult],
+    actual_by_no: dict[int, ActualResult],
+    overrides: list[GroupOverride],
+) -> dict:
+    current = current_ko_stage(matches, actual_by_no)
+
+    _actual_bracket, _actual_tables, actual_advancement = build_bracket(
+        teams_db,
+        matches,
+        actuals,
+        overrides_db=overrides,
+    )
+
+    correct_codes = actual_advancement.get(current["stage"], set())
+
+    user_rows = []
+
+    for user in users:
+        user_preds = Prediction.query.filter_by(user_id=user.id).all()
+        group_preds = [p for p in user_preds if p.match_no <= 72]
+        ko_picks = [p for p in user_preds if p.match_no >= 73]
+
+        _pred_bracket, _pred_tables, pred_advancement = build_bracket(
+            teams_db,
+            matches,
+            group_preds,
+            picks_db=ko_picks,
+        )
+
+        predicted_codes = sorted(pred_advancement.get(current["stage"], set()))
+
+        user_rows.append({
+            "user": user,
+            "teams": [
+                {
+                    "code": code,
+                    "correct": code in correct_codes,
+                }
+                for code in predicted_codes
+            ],
+        })
+
+    return {
+        "mode": "ko",
+        "stage": current["stage"],
+        "stage_label": current["label"],
+        "rows": user_rows,
+    }
+
 
 def group_result_entered(match: Match, actual_by_no: dict[int, ActualResult]) -> bool:
     actual = actual_by_no.get(match.match_no)
@@ -537,41 +696,74 @@ def register_routes(app: Flask) -> None:
     @app.route("/leaderboard")
     def leaderboard():
         users = User.query.order_by(User.name).all()
-        overrides = GroupOverride.query.all()
-        ko_scoring_active = all_group_results_entered_for_leaderboard()
+        matches = Match.query.order_by(Match.match_no).all()
+        teams_db = Team.query.all()
+        teams = {t.code: t for t in teams_db}
+
+        actuals = ActualResult.query.all()
+        actual_by_no = {a.match_no: a for a in actuals}
+
+        overrides = GroupOverride.query.order_by(
+            GroupOverride.group_id,
+            GroupOverride.forced_rank,
+        ).all()
+
+        ko_scoring_active = all_group_results_entered(matches, actual_by_no)
 
         rows = []
-        for u in users:
-            s = score_user(u.id, overrides=overrides)
+
+        for user in users:
+            score = score_user(user.id, overrides=overrides)
 
             if not ko_scoring_active:
-                # Defensive display guard:
-                # Before all group results are entered by the admin, KO points must be 0,
-                # regardless of what score_user() may return internally.
-                s["ko_points"] = 0
-                s["total"] = s.get("group_points", 0)
+                score["ko_points"] = 0
+                score["total"] = score.get("group_points", 0)
 
                 details = [
-                    d for d in s.get("details", [])
+                    detail
+                    for detail in score.get("details", [])
                     if not (
-                        d.startswith("R32:")
-                        or d.startswith("R16:")
-                        or d.startswith("QF:")
-                        or d.startswith("SF:")
-                        or d.startswith("FINAL:")
-                        or d.startswith("CHAMPION:")
+                        detail.startswith("R32:")
+                        or detail.startswith("R16:")
+                        or detail.startswith("QF:")
+                        or detail.startswith("SF:")
+                        or detail.startswith("FINAL:")
+                        or detail.startswith("CHAMPION:")
                     )
                 ]
 
                 if "KO-Wertung noch nicht aktiv" not in details:
                     details.append("KO-Wertung noch nicht aktiv")
 
-                s["details"] = details
+                score["details"] = details
 
-            rows.append({"user": u, **s})
+            rows.append({"user": user, **score})
 
-        rows.sort(key=lambda r: r["total"], reverse=True)
-        return render_template("leaderboard.html", rows=rows)
+        rows.sort(key=lambda row: row["total"], reverse=True)
+
+        if ko_scoring_active:
+            live_context = build_live_ko_context(
+                users,
+                matches,
+                teams_db,
+                actuals,
+                actual_by_no,
+                overrides,
+            )
+        else:
+            live_context = build_live_group_context(
+                users,
+                matches,
+                actual_by_no,
+            )
+
+        return render_template(
+            "leaderboard.html",
+            rows=rows,
+            live=live_context,
+            teams=teams,
+            actual_by_no=actual_by_no,
+        )
 
     @app.route("/tables")
     def tables():
