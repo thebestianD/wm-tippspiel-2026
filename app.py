@@ -259,6 +259,27 @@ def build_live_ko_context(users: list[User], matches: list[Match], teams_db: lis
         "rows": user_rows,
     }
 
+def all_group_results_entered_for_leaderboard() -> bool:
+    """KO points are only visible once all 72 group matches have admin-entered scores."""
+    group_matches = Match.query.filter_by(phase="group").all()
+
+    if not group_matches:
+        return False
+
+    actual_by_no = {
+        a.match_no: a
+        for a in ActualResult.query.filter(ActualResult.match_no <= 72).all()
+    }
+
+    for match in group_matches:
+        actual = actual_by_no.get(match.match_no)
+        if not actual:
+            return False
+        if actual.home_goals is None or actual.away_goals is None:
+            return False
+
+    return True
+
 
 def register_routes(app: Flask) -> None:
     @app.context_processor
@@ -513,28 +534,44 @@ def register_routes(app: Flask) -> None:
         scoring = {key: int(settings.get(key, default)) for key, default in defaults.items()}
         return render_template("points.html", scoring=scoring)
 
-    @app.route("/leaderboard")
+        @app.route("/leaderboard")
     def leaderboard():
         users = User.query.order_by(User.name).all()
-        matches = Match.query.order_by(Match.match_no).all()
-        teams_db = Team.query.all()
-        teams = {t.code: t for t in teams_db}
-        actuals = ActualResult.query.all()
-        actual_by_no = {a.match_no: a for a in actuals}
-        overrides = GroupOverride.query.order_by(GroupOverride.group_id, GroupOverride.forced_rank).all()
+        overrides = GroupOverride.query.all()
+        ko_scoring_active = all_group_results_entered_for_leaderboard()
 
         rows = []
         for u in users:
             s = score_user(u.id, overrides=overrides)
+
+            if not ko_scoring_active:
+                # Defensive display guard:
+                # Before all group results are entered by the admin, KO points must be 0,
+                # regardless of what score_user() may return internally.
+                s["ko_points"] = 0
+                s["total"] = s.get("group_points", 0)
+
+                details = [
+                    d for d in s.get("details", [])
+                    if not (
+                        d.startswith("R32:")
+                        or d.startswith("R16:")
+                        or d.startswith("QF:")
+                        or d.startswith("SF:")
+                        or d.startswith("FINAL:")
+                        or d.startswith("CHAMPION:")
+                    )
+                ]
+
+                if "KO-Wertung noch nicht aktiv" not in details:
+                    details.append("KO-Wertung noch nicht aktiv")
+
+                s["details"] = details
+
             rows.append({"user": u, **s})
+
         rows.sort(key=lambda r: r["total"], reverse=True)
-
-        if all_group_results_entered(matches, actual_by_no):
-            live_context = build_live_ko_context(users, matches, teams_db, actuals, actual_by_no, overrides)
-        else:
-            live_context = build_live_group_context(users, matches, actual_by_no)
-
-        return render_template("leaderboard.html", rows=rows, live=live_context, teams=teams, actual_by_no=actual_by_no)
+        return render_template("leaderboard.html", rows=rows)
 
     @app.route("/tables")
     def tables():
