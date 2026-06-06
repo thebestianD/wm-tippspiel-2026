@@ -12,6 +12,7 @@ on:
       - "requirements.txt"
       - "Dockerfile"
       - "README.md"
+      - ".github/workflows/**"
   workflow_dispatch:
 
 jobs:
@@ -24,12 +25,21 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Debug checkout
+        run: |
+          echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
+          pwd
+          ls -la
+          git status
+
       - name: Push to Hugging Face Space
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           HF_USERNAME: thebestian
           HF_SPACE_NAME: wm-tippspiel-2026
         run: |
+          cd "$GITHUB_WORKSPACE"
+
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
 
