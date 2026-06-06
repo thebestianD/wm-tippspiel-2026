@@ -1,44 +1,53 @@
 from __future__ import annotations
-from typing import Dict, Iterable, List
+
+from typing import Dict, List
 
 from .engine import build_bracket, result_outcome
 from .models import ActualResult, Match, Prediction, Setting, Team
 
 
-ROUND_SCORE_KEYS = {
-    "r32": "score_reaches_r32",
-    "r16": "score_reaches_r16",
-    "qf": "score_reaches_qf",
-    "sf": "score_reaches_sf",
-    "final": "score_reaches_final",
-    "champion": "score_champion",
-}
-
-
 def _settings() -> Dict[str, int]:
     rows = {s.key: s.value for s in Setting.query.all()}
+
     def geti(key: str, default: int) -> int:
         try:
             return int(rows.get(key, default))
         except ValueError:
             return default
+
     return {
         "exact": geti("score_exact_group", 3),
         "outcome": geti("score_outcome_group", 1),
         "gd_bonus": geti("score_goal_diff_bonus", 1),
-        **{stage: geti(key, default) for stage, key, default in [
-            ("r32", "score_reaches_r32", 1),
-            ("r16", "score_reaches_r16", 2),
-            ("qf", "score_reaches_qf", 3),
-            ("sf", "score_reaches_sf", 4),
-            ("final", "score_reaches_final", 6),
-            ("champion", "score_champion", 10),
-        ]}
+        "r32": geti("score_reaches_r32", 1),
+        "r16": geti("score_reaches_r16", 2),
+        "qf": geti("score_reaches_qf", 3),
+        "sf": geti("score_reaches_sf", 4),
+        "final": geti("score_reaches_final", 6),
+        "champion": geti("score_champion", 10),
     }
+
+
+def _all_group_results_entered(matches: list[Match], actual_by_no: dict[int, ActualResult]) -> bool:
+    """Return True only once every group-stage match has an admin-entered final score."""
+    group_matches = [m for m in matches if m.phase == "group"]
+
+    if not group_matches:
+        return False
+
+    for match in group_matches:
+        actual = actual_by_no.get(match.match_no)
+        if not actual:
+            return False
+        if actual.home_goals is None or actual.away_goals is None:
+            return False
+
+    return True
 
 
 def score_user(user_id: int, overrides=None) -> Dict:
     cfg = _settings()
+
     matches = Match.query.order_by(Match.match_no).all()
     teams = Team.query.all()
     actuals = ActualResult.query.all()
@@ -47,45 +56,90 @@ def score_user(user_id: int, overrides=None) -> Dict:
     actual_by_no = {a.match_no: a for a in actuals}
     pred_by_no = {p.match_no: p for p in user_preds}
 
-    total = 0
     group_points = 0
     ko_points = 0
     details: List[str] = []
 
-    for m in matches:
-        if m.phase != "group":
+    # Vorrundenpunkte: nur für Spiele, bei denen der Admin ein Ergebnis eingetragen hat.
+    for match in matches:
+        if match.phase != "group":
             continue
-        a = actual_by_no.get(m.match_no)
-        p = pred_by_no.get(m.match_no)
-        if not a or not p or a.home_goals is None or a.away_goals is None or p.home_goals is None or p.away_goals is None:
+
+        actual = actual_by_no.get(match.match_no)
+        pred = pred_by_no.get(match.match_no)
+
+        if not actual or not pred:
             continue
+        if actual.home_goals is None or actual.away_goals is None:
+            continue
+        if pred.home_goals is None or pred.away_goals is None:
+            continue
+
         pts = 0
-        if a.home_goals == p.home_goals and a.away_goals == p.away_goals:
-            pts += cfg["exact"]
-        elif result_outcome(a.home_goals, a.away_goals) == result_outcome(p.home_goals, p.away_goals):
-            pts += cfg["outcome"]
-            if (a.home_goals - a.away_goals) == (p.home_goals - p.away_goals):
+
+        if actual.home_goals == pred.home_goals and actual.away_goals == pred.away_goals:
+            pts = cfg["exact"]
+        elif result_outcome(actual.home_goals, actual.away_goals) == result_outcome(pred.home_goals, pred.away_goals):
+            pts = cfg["outcome"]
+            if (actual.home_goals - actual.away_goals) == (pred.home_goals - pred.away_goals):
                 pts += cfg["gd_bonus"]
-        if pts:
-            details.append(f"M{m.match_no}: {pts} P")
+
         group_points += pts
 
-    # Actual advancement comes from actual scores/results plus admin table overrides.
-    actual_bracket, _actual_tables, actual_adv = build_bracket(teams, matches, actuals, overrides_db=overrides)
+        if pts:
+            details.append(f"M{match.match_no}: {pts} P")
 
-    # User advancement comes from the user's group-score predictions and KO winner picks.
-    user_group_score_preds = [p for p in user_preds if p.match_no <= 72]
-    user_ko_picks = [p for p in user_preds if p.match_no >= 73]
-    pred_bracket, _pred_tables, pred_adv = build_bracket(teams, matches, user_group_score_preds, picks_db=user_ko_picks)
+    # KO-Punkte erst aktivieren, wenn ALLE Gruppenspiele vom Admin eingetragen wurden.
+    if not _all_group_results_entered(matches, actual_by_no):
+        details.append("KO-Wertung noch nicht aktiv")
+        return {
+            "total": group_points,
+            "group_points": group_points,
+            "ko_points": 0,
+            "details": details,
+        }
 
-    for stage, score in [("r32", cfg["r32"]), ("r16", cfg["r16"]), ("qf", cfg["qf"]), ("sf", cfg["sf"]), ("final", cfg["final"]), ("champion", cfg["champion"] )]:
-        correct_teams = sorted(pred_adv.get(stage, set()) & actual_adv.get(stage, set()))
-        stage_points = len(correct_teams) * score
+    # Ab hier: alle Gruppenspiele sind eingetragen, also darf KO-Wertung greifen.
+    actual_bracket, actual_tables, actual_advancement = build_bracket(
+        teams,
+        matches,
+        actuals,
+        overrides_db=overrides,
+    )
+
+    user_group_predictions = [p for p in user_preds if p.match_no <= 72]
+    user_ko_predictions = [p for p in user_preds if p.match_no >= 73]
+
+    pred_bracket, pred_tables, pred_advancement = build_bracket(
+        teams,
+        matches,
+        user_group_predictions,
+        picks_db=user_ko_predictions,
+    )
+
+    for stage, score_per_team in [
+        ("r32", cfg["r32"]),
+        ("r16", cfg["r16"]),
+        ("qf", cfg["qf"]),
+        ("sf", cfg["sf"]),
+        ("final", cfg["final"]),
+        ("champion", cfg["champion"]),
+    ]:
+        actual_teams = actual_advancement.get(stage, set())
+        predicted_teams = pred_advancement.get(stage, set())
+
+        correct_teams = sorted(predicted_teams & actual_teams)
+        stage_points = len(correct_teams) * score_per_team
+
         ko_points += stage_points
+
         if stage_points:
-            details.append(f"{stage.upper()}: {len(correct_teams)} Teams × {score} = {stage_points}")
+            details.append(
+                f"{stage.upper()}: {len(correct_teams)} Teams × {score_per_team} = {stage_points}"
+            )
 
     total = group_points + ko_points
+
     return {
         "total": total,
         "group_points": group_points,
