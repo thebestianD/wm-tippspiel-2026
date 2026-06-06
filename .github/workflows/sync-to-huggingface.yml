@@ -4,6 +4,14 @@ on:
   push:
     branches:
       - main
+    paths:
+      - "app.py"
+      - "wm_tippspiel/**"
+      - "templates/**"
+      - "static/**"
+      - "requirements.txt"
+      - "Dockerfile"
+      - "README.md"
   workflow_dispatch:
 
 jobs:
@@ -11,11 +19,6 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Check out GitHub repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
       - name: Push to Hugging Face Space
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
@@ -25,16 +28,19 @@ jobs:
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
 
-          for i in 1 2 3 4 5; do
+          for i in 1 2 3; do
             echo "Push attempt $i..."
             if git push --force https://$HF_USERNAME:$HF_TOKEN@huggingface.co/spaces/$HF_USERNAME/$HF_SPACE_NAME main; then
               echo "Push successful."
               exit 0
             fi
 
-            echo "Push failed. Waiting before retry..."
-            sleep $((i * 60))
+            if [ "$i" -lt 3 ]; then
+              wait_seconds=$((i * 600))
+              echo "Push failed. Waiting $wait_seconds seconds before retry..."
+              sleep $wait_seconds
+            fi
           done
 
-          echo "Push failed after 5 attempts."
+          echo "Push failed after 3 attempts."
           exit 1
