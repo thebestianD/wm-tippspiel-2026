@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+  .profile-wrap { max-width:1200px; margin:0 auto; }
+  .profile-grid { display:grid; grid-template-columns: minmax(260px, .8fr) minmax(0, 1.2fr); gap:18px; align-items:start; }
+  .profile-card { background:#fff; border:1px solid rgba(0,0,0,.08); border-radius:18px; box-shadow:0 10px 30px rgba(15,23,42,.06); padding:16px; }
+  .profile-title-row { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+  .profile-name { margin:0; }
+  .stat-list { display:grid; gap:10px; margin-top:12px; }
+  .stat-row { display:grid; grid-template-columns:150px 1fr; gap:10px; align-items:center; border-bottom:1px solid rgba(0,0,0,.06); padding-bottom:10px; }
+  .stat-row:last-child { border-bottom:0; padding-bottom:0; }
+  .stat-label { color:#64748b; font-size:.92rem; }
+  .stat-value { font-weight:900; }
+  .profile-score { font-size:2.2rem; line-height:1; font-weight:950; color:#0f172a; }
+  .mini-flag { width:20px; height:14px; object-fit:cover; border-radius:2px; box-shadow:0 0 0 1px rgba(0,0,0,.08); vertical-align:-2px; }
+  .team-pill { display:inline-flex; align-items:center; gap:6px; border-radius:999px; padding:4px 8px; background:#f1f5f9; border:1px solid rgba(0,0,0,.1); font-weight:800; }
+  .profile-badge { display:inline-flex; align-items:center; border-radius:999px; padding:4px 9px; font-weight:900; font-size:.82rem; }
+  .profile-badge.ok { background:#dcfce7; color:#14532d; }
+  .profile-badge.warn { background:#fef3c7; color:#713f12; }
+  .exact-list { display:grid; gap:10px; margin-top:12px; }
+  .exact-card { display:grid; grid-template-columns:auto minmax(0,1fr) auto; gap:12px; align-items:center; border:1px solid rgba(0,0,0,.08); border-radius:14px; padding:10px 12px; background:#fcfcfd; }
+  .exact-match-no { font-weight:950; color:#0f172a; }
+  .exact-teams { font-weight:850; }
+  .exact-meta { color:#64748b; font-size:.85rem; text-align:right; }
+  .exact-score { font-weight:950; }
+  @media (max-width: 860px) { .profile-grid { grid-template-columns:1fr; } .stat-row { grid-template-columns:1fr; } .exact-card { grid-template-columns:1fr; } .exact-meta { text-align:left; } }
+</style>
+
+<div class="profile-wrap">
+  <div class="page-head compact-head">
+    <div>
+      <h1>Profil: {{ profile_user.name }}</h1>
+      <p>Kurzüberblick zur aktuellen Auswertung. Vollständige Tipps werden hier bewusst nicht angezeigt.</p>
+    </div>
+    <a class="btn secondary" href="{{ url_for('leaderboard') }}">← Zurück zum Leaderboard</a>
+  </div>
+
+  <div class="profile-grid">
+    <section class="profile-card">
+      <div class="profile-title-row">
+        <h2 class="profile-name">{{ profile_user.name }}</h2>
+        {% if stats.complete %}
+          <span class="profile-badge ok">Vollständig ausgefüllt</span>
+        {% else %}
+          <span class="profile-badge warn">Noch unvollständig</span>
+        {% endif %}
+      </div>
+
+      <div class="stat-list">
+        <div class="stat-row">
+          <div class="stat-label">Aktuelle Punktzahl</div>
+          <div class="stat-value"><span class="profile-score">{{ stats.score.total }}</span> Punkte</div>
+        </div>
+        <div class="stat-row">
+          <div class="stat-label">Vorrunde</div>
+          <div class="stat-value">{{ stats.score.group_points }} Punkte</div>
+        </div>
+        <div class="stat-row">
+          <div class="stat-label">KO-Runden</div>
+          <div class="stat-value">{{ stats.score.ko_points }} Punkte</div>
+        </div>
+        <div class="stat-row">
+          <div class="stat-label">Vollständig</div>
+          <div class="stat-value">
+            {{ stats.completeness_label }}
+            {% if stats.missing_parts %}
+              <div class="small muted">{{ ', '.join(stats.missing_parts) }}</div>
+            {% endif %}
+          </div>
+        </div>
+        <div class="stat-row">
+          <div class="stat-label">Weltmeistertipp</div>
+          <div class="stat-value">
+            {% if stats.champion_team %}
+              <span class="team-pill"><img class="mini-flag" src="{{ team_flag_url(stats.champion_team.code) }}" alt=""> {{ stats.champion_team.name }}</span>
+            {% else %}
+              <span class="muted">Noch nicht getippt</span>
+            {% endif %}
+          </div>
+        </div>
+        <div class="stat-row">
+          <div class="stat-label">Deutschland kommt bis</div>
+          <div class="stat-value">{{ stats.germany_stage }}</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="profile-card">
+      <h2>Exakt richtig getippte Spiele</h2>
+      <p class="small muted">Hier erscheinen nur Vorrundenspiele, bei denen der Admin bereits ein Ergebnis eingetragen hat und der Tipp exakt stimmt.</p>
+
+      <div class="exact-list">
+        {% for item in stats.exact_matches %}
+          <div class="exact-card">
+            <div class="exact-match-no">M{{ item.match.match_no }}</div>
+            <div>
+              <div class="exact-teams">
+                <img class="mini-flag" src="{{ team_flag_url(item.home.code) }}" alt=""> {{ item.home.name }}
+                <span class="exact-score">{{ item.score }}</span>
+                <img class="mini-flag" src="{{ team_flag_url(item.away.code) }}" alt=""> {{ item.away.name }}
+              </div>
+              <div class="small muted">{{ item.info.broadcast }}</div>
+            </div>
+            <div class="exact-meta">{{ item.info.datetime_label }}</div>
+          </div>
+        {% else %}
+          <p class="muted">Noch keine exakt richtigen Spiele.</p>
+        {% endfor %}
+      </div>
+    </section>
+  </div>
+</div>
+{% endblock %}

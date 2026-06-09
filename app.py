@@ -22,6 +22,7 @@ load_dotenv()
 def normalize_database_url(url: str | None) -> str:
     if not url:
         return "sqlite:///wm_tippspiel.db"
+    # SQLAlchemy expects postgresql://; Supabase sometimes presents postgres://.
     if url.startswith("postgres://"):
         return "postgresql+psycopg://" + url[len("postgres://"):]
     if url.startswith("postgresql://"):
@@ -93,6 +94,11 @@ def upsert_actual(match_no: int, home_goals=None, away_goals=None, winner_code=N
 
 
 def parse_goal_value(raw: str | None, *, match_no: int, empty_as_zero: bool = False) -> int:
+    """Parse and normalize a goal value. Accepts values like '02' as 2.
+
+    If empty_as_zero=True, an empty field is interpreted as 0. This is used
+    after we already checked that not both fields of a match are empty.
+    """
     raw = "" if raw is None else raw.strip()
     if raw == "":
         if empty_as_zero:
@@ -118,6 +124,7 @@ def high_score_notice(match_nos: list[int]) -> str | None:
 
 
 def format_lock_at_de(dt: datetime | None = None) -> str:
+    """Format the lock timestamp for German users in Europe/Berlin time."""
     dt = dt or parse_lock_at()
     berlin = dt.astimezone(ZoneInfo("Europe/Berlin"))
     suffix = "MESZ" if berlin.dst() and berlin.dst().total_seconds() else "MEZ"
@@ -125,20 +132,18 @@ def format_lock_at_de(dt: datetime | None = None) -> str:
 
 
 def display_match_info(match_no: int) -> dict:
+    """Return UI metadata for a match. Times are displayed in Germany/Berlin summer time."""
     raw = MATCH_INFO.get(match_no, {})
     label = "Termin offen"
     if raw.get("date_et") and raw.get("time_et"):
+        # Tournament dates are in June/July, when ET=UTC-4 and Berlin=UTC+2.
+        # FIFA publishes ET; Germany/Berlin display is +6h.
         dt = datetime.strptime(f"{raw['date_et']} {raw['time_et']}", "%Y-%m-%d %H:%M") + timedelta(hours=6)
         label = dt.strftime("%d.%m. %H:%M")
     return {
         "datetime_label": label,
         "broadcast": raw.get("broadcast", "Free-TV offen / MagentaTV"),
     }
-
-
-def match_sort_key(match: Match) -> tuple[str, str, int]:
-    raw = MATCH_INFO.get(match.match_no, {})
-    return (raw.get("date_et") or "9999-12-31", raw.get("time_et") or "99:99", match.match_no)
 
 
 def score_group_prediction(pred: Prediction | None, actual: ActualResult | None) -> dict | None:
@@ -154,6 +159,7 @@ def score_group_prediction(pred: Prediction | None, actual: ActualResult | None)
         return {"points": 1, "class": "score-1", "label": "1 P"}
     return {"points": 0, "class": "score-0", "label": "0 P"}
 
+
 def match_sort_key(match: Match) -> tuple[str, str, int]:
     raw = MATCH_INFO.get(match.match_no, {})
     return (raw.get("date_et") or "9999-12-31", raw.get("time_et") or "99:99", match.match_no)
@@ -176,159 +182,31 @@ def all_group_results_entered(matches: list[Match], actual_by_no: dict[int, Actu
     return all(group_result_entered(m, actual_by_no) for m in group_matches)
 
 
-def format_tip(pred: Prediction | None) -> str:
-    if not pred:
-        return "–"
-    if pred.home_goals is not None and pred.away_goals is not None:
-        return f"{pred.home_goals}:{pred.away_goals}"
-    if pred.winner_code:
-        return pred.winner_code
-    return "–"
+def apply_ko_scoring_gate(score: dict, ko_scoring_active: bool) -> dict:
+    """Hide KO points defensively until all group results are entered by the admin."""
+    if ko_scoring_active:
+        return score
 
+    guarded = dict(score)
+    guarded["ko_points"] = 0
+    guarded["total"] = guarded.get("group_points", 0)
 
-KO_PHASES = [
-    ("r32", "Sechzehntelfinale", list(range(73, 89))),
-    ("r16", "Achtelfinale", list(range(89, 97))),
-    ("qf", "Viertelfinale", list(range(97, 101))),
-    ("sf", "Halbfinale", [101, 102]),
-    ("final", "Finale", [104]),
-]
-
-
-def current_ko_stage(matches: list[Match], actual_by_no: dict[int, ActualResult]) -> dict:
-    matches_by_no = {m.match_no: m for m in matches}
-
-    for stage, label, match_nos in KO_PHASES:
-        stage_matches = [matches_by_no[no] for no in match_nos if no in matches_by_no]
-        if not stage_matches or not all(ko_winner_entered(m, actual_by_no) for m in stage_matches):
-            return {"stage": stage, "label": label, "match_nos": match_nos}
-
-    return {"stage": "champion", "label": "Weltmeister", "match_nos": [104]}
-
-
-def build_live_group_context(users: list[User], matches: list[Match], actual_by_no: dict[int, ActualResult]) -> dict:
-    group_matches = [m for m in matches if m.phase == "group"]
-
-    completed = [m for m in group_matches if group_result_entered(m, actual_by_no)]
-    open_matches = [m for m in group_matches if not group_result_entered(m, actual_by_no)]
-
-    last_matches = sorted(completed, key=match_sort_key)[-3:]
-    next_matches = sorted(open_matches, key=match_sort_key)[:3]
-
-    relevant_nos = [m.match_no for m in last_matches + next_matches]
-
-    predictions = []
-    if relevant_nos:
-        predictions = Prediction.query.filter(Prediction.match_no.in_(relevant_nos)).all()
-
-    pred_by_user_match = {(p.user_id, p.match_no): p for p in predictions}
-
-    def rows_for_match(match: Match, scored: bool) -> list[dict]:
-        rows = []
-        actual = actual_by_no.get(match.match_no)
-
-        for user in users:
-            pred = pred_by_user_match.get((user.id, match.match_no))
-            score = score_group_prediction(pred, actual) if scored else None
-
-            rows.append({
-                "user": user,
-                "tip": format_tip(pred),
-                "score": score,
-            })
-
-        return rows
-
-    return {
-        "mode": "group",
-        "last_matches": [
-            {
-                "match": match,
-                "actual": actual_by_no.get(match.match_no),
-                "rows": rows_for_match(match, True),
-            }
-            for match in last_matches
-        ],
-        "next_matches": [
-            {
-                "match": match,
-                "actual": None,
-                "rows": rows_for_match(match, False),
-            }
-            for match in next_matches
-        ],
-    }
-
-
-def build_live_ko_context(
-    users: list[User],
-    matches: list[Match],
-    teams_db: list[Team],
-    actuals: list[ActualResult],
-    actual_by_no: dict[int, ActualResult],
-    overrides: list[GroupOverride],
-) -> dict:
-    current = current_ko_stage(matches, actual_by_no)
-
-    _actual_bracket, _actual_tables, actual_advancement = build_bracket(
-        teams_db,
-        matches,
-        actuals,
-        overrides_db=overrides,
-    )
-
-    correct_codes = actual_advancement.get(current["stage"], set())
-
-    user_rows = []
-
-    for user in users:
-        user_preds = Prediction.query.filter_by(user_id=user.id).all()
-        group_preds = [p for p in user_preds if p.match_no <= 72]
-        ko_picks = [p for p in user_preds if p.match_no >= 73]
-
-        _pred_bracket, _pred_tables, pred_advancement = build_bracket(
-            teams_db,
-            matches,
-            group_preds,
-            picks_db=ko_picks,
+    details = [
+        detail
+        for detail in guarded.get("details", [])
+        if not (
+            detail.startswith("R32:")
+            or detail.startswith("R16:")
+            or detail.startswith("QF:")
+            or detail.startswith("SF:")
+            or detail.startswith("FINAL:")
+            or detail.startswith("CHAMPION:")
         )
-
-        predicted_codes = sorted(pred_advancement.get(current["stage"], set()))
-
-        user_rows.append({
-            "user": user,
-            "teams": [
-                {
-                    "code": code,
-                    "correct": code in correct_codes,
-                }
-                for code in predicted_codes
-            ],
-        })
-
-    return {
-        "mode": "ko",
-        "stage": current["stage"],
-        "stage_label": current["label"],
-        "rows": user_rows,
-    }
-
-
-def group_result_entered(match: Match, actual_by_no: dict[int, ActualResult]) -> bool:
-    actual = actual_by_no.get(match.match_no)
-    return bool(actual and actual.home_goals is not None and actual.away_goals is not None)
-
-
-def ko_winner_entered(match: Match, actual_by_no: dict[int, ActualResult]) -> bool:
-    actual = actual_by_no.get(match.match_no)
-    return bool(actual and actual.winner_code)
-
-
-def all_group_results_entered(matches: list[Match], actual_by_no: dict[int, ActualResult]) -> bool:
-    group_matches = [m for m in matches if m.phase == "group"]
-    if not group_matches:
-        return False
-    return all(group_result_entered(m, actual_by_no) for m in group_matches)
+    ]
+    if "KO-Wertung noch nicht aktiv" not in details:
+        details.append("KO-Wertung noch nicht aktiv")
+    guarded["details"] = details
+    return guarded
 
 
 def format_tip(pred: Prediction | None) -> str:
@@ -350,12 +228,24 @@ KO_PHASES = [
 ]
 
 
+GERMANY_STAGE_LABELS = [
+    ("champion", "Weltmeister"),
+    ("final", "Finale"),
+    ("sf", "Halbfinale"),
+    ("qf", "Viertelfinale"),
+    ("r16", "Achtelfinale"),
+    ("r32", "Sechzehntelfinale"),
+]
+
+
 def current_ko_stage(matches: list[Match], actual_by_no: dict[int, ActualResult]) -> dict:
     matches_by_no = {m.match_no: m for m in matches}
+
     for stage, label, match_nos in KO_PHASES:
         stage_matches = [matches_by_no[no] for no in match_nos if no in matches_by_no]
         if not stage_matches or not all(ko_winner_entered(m, actual_by_no) for m in stage_matches):
             return {"stage": stage, "label": label, "match_nos": match_nos}
+
     return {"stage": "champion", "label": "Weltmeister", "match_nos": [104]}
 
 
@@ -386,23 +276,46 @@ def build_live_group_context(users: list[User], matches: list[Match], actual_by_
 
     return {
         "mode": "group",
-        "last_matches": [{"match": m, "actual": actual_by_no.get(m.match_no), "rows": rows_for_match(m, True)} for m in last_matches],
-        "next_matches": [{"match": m, "actual": None, "rows": rows_for_match(m, False)} for m in next_matches],
+        "last_matches": [
+            {"match": m, "actual": actual_by_no.get(m.match_no), "rows": rows_for_match(m, True)}
+            for m in last_matches
+        ],
+        "next_matches": [
+            {"match": m, "actual": None, "rows": rows_for_match(m, False)}
+            for m in next_matches
+        ],
     }
 
 
-def build_live_ko_context(users: list[User], matches: list[Match], teams_db: list[Team], actuals: list[ActualResult], actual_by_no: dict[int, ActualResult], overrides: list[GroupOverride]) -> dict:
+def build_live_ko_context(
+    users: list[User],
+    matches: list[Match],
+    teams_db: list[Team],
+    actuals: list[ActualResult],
+    actual_by_no: dict[int, ActualResult],
+    overrides: list[GroupOverride],
+) -> dict:
     current = current_ko_stage(matches, actual_by_no)
-    _actual_bracket, _actual_tables, actual_adv = build_bracket(teams_db, matches, actuals, overrides_db=overrides)
-    correct_codes = actual_adv.get(current["stage"], set())
+    _actual_bracket, _actual_tables, actual_advancement = build_bracket(
+        teams_db,
+        matches,
+        actuals,
+        overrides_db=overrides,
+    )
+    correct_codes = actual_advancement.get(current["stage"], set())
 
     user_rows = []
     for user in users:
         user_preds = Prediction.query.filter_by(user_id=user.id).all()
         group_preds = [p for p in user_preds if p.match_no <= 72]
         ko_picks = [p for p in user_preds if p.match_no >= 73]
-        _pred_bracket, _pred_tables, pred_adv = build_bracket(teams_db, matches, group_preds, picks_db=ko_picks)
-        predicted_codes = sorted(pred_adv.get(current["stage"], set()))
+        _pred_bracket, _pred_tables, pred_advancement = build_bracket(
+            teams_db,
+            matches,
+            group_preds,
+            picks_db=ko_picks,
+        )
+        predicted_codes = sorted(pred_advancement.get(current["stage"], set()))
         user_rows.append({
             "user": user,
             "teams": [
@@ -418,26 +331,89 @@ def build_live_ko_context(users: list[User], matches: list[Match], teams_db: lis
         "rows": user_rows,
     }
 
-def all_group_results_entered_for_leaderboard() -> bool:
-    """KO points are only visible once all 72 group matches have admin-entered scores."""
-    group_matches = Match.query.filter_by(phase="group").all()
 
-    if not group_matches:
-        return False
+def user_profile_stats(
+    user: User,
+    matches: list[Match],
+    teams_db: list[Team],
+    actuals: list[ActualResult],
+    actual_by_no: dict[int, ActualResult],
+    overrides: list[GroupOverride],
+    ko_scoring_active: bool,
+) -> dict:
+    predictions = Prediction.query.filter_by(user_id=user.id).all()
+    pred_by_no = {p.match_no: p for p in predictions}
+    group_predictions = [p for p in predictions if p.match_no <= 72]
+    ko_predictions = [p for p in predictions if p.match_no >= 73]
+    teams = {t.code: t for t in teams_db}
 
-    actual_by_no = {
-        a.match_no: a
-        for a in ActualResult.query.filter(ActualResult.match_no <= 72).all()
-    }
+    group_pred_count = sum(
+        1
+        for p in group_predictions
+        if p.home_goals is not None and p.away_goals is not None
+    )
+    champion_prediction = pred_by_no.get(104)
+    champion_code = champion_prediction.winner_code if champion_prediction and champion_prediction.winner_code else None
 
-    for match in group_matches:
+    exact_matches = []
+    for match in matches:
+        if match.phase != "group":
+            continue
         actual = actual_by_no.get(match.match_no)
-        if not actual:
-            return False
+        pred = pred_by_no.get(match.match_no)
+        if not actual or not pred:
+            continue
         if actual.home_goals is None or actual.away_goals is None:
-            return False
+            continue
+        if pred.home_goals is None or pred.away_goals is None:
+            continue
+        if actual.home_goals == pred.home_goals and actual.away_goals == pred.away_goals:
+            exact_matches.append({
+                "match": match,
+                "home": teams.get(match.home_team_code),
+                "away": teams.get(match.away_team_code),
+                "score": f"{actual.home_goals}:{actual.away_goals}",
+                "info": display_match_info(match.match_no),
+            })
 
-    return True
+    score = apply_ko_scoring_gate(score_user(user.id, overrides=overrides), ko_scoring_active)
+
+    complete = bool(group_pred_count == 72 and champion_code)
+    completeness_label = "Ja" if complete else "Nein"
+    missing_parts = []
+    if group_pred_count < 72:
+        missing_parts.append(f"{72 - group_pred_count} Vorrundenspiele fehlen")
+    if not champion_code:
+        missing_parts.append("Weltmeistertipp fehlt")
+
+    germany_stage = "Vorrunde"
+    try:
+        _pred_bracket, _pred_tables, pred_advancement = build_bracket(
+            teams_db,
+            matches,
+            group_predictions,
+            picks_db=ko_predictions,
+        )
+        for stage, label in GERMANY_STAGE_LABELS:
+            if "GER" in pred_advancement.get(stage, set()):
+                germany_stage = label
+                break
+    except Exception:
+        # The profile should still render even if a user has not filled enough tips
+        # to build a meaningful bracket yet.
+        germany_stage = "Noch nicht bestimmbar"
+
+    return {
+        "score": score,
+        "group_pred_count": group_pred_count,
+        "complete": complete,
+        "completeness_label": completeness_label,
+        "missing_parts": missing_parts,
+        "exact_matches": exact_matches,
+        "champion_code": champion_code,
+        "champion_team": teams.get(champion_code) if champion_code else None,
+        "germany_stage": germany_stage,
+    }
 
 
 def register_routes(app: Flask) -> None:
@@ -699,63 +675,23 @@ def register_routes(app: Flask) -> None:
         matches = Match.query.order_by(Match.match_no).all()
         teams_db = Team.query.all()
         teams = {t.code: t for t in teams_db}
-
         actuals = ActualResult.query.all()
         actual_by_no = {a.match_no: a for a in actuals}
-
-        overrides = GroupOverride.query.order_by(
-            GroupOverride.group_id,
-            GroupOverride.forced_rank,
-        ).all()
+        overrides = GroupOverride.query.order_by(GroupOverride.group_id, GroupOverride.forced_rank).all()
 
         ko_scoring_active = all_group_results_entered(matches, actual_by_no)
 
         rows = []
-
         for user in users:
-            score = score_user(user.id, overrides=overrides)
-
-            if not ko_scoring_active:
-                score["ko_points"] = 0
-                score["total"] = score.get("group_points", 0)
-
-                details = [
-                    detail
-                    for detail in score.get("details", [])
-                    if not (
-                        detail.startswith("R32:")
-                        or detail.startswith("R16:")
-                        or detail.startswith("QF:")
-                        or detail.startswith("SF:")
-                        or detail.startswith("FINAL:")
-                        or detail.startswith("CHAMPION:")
-                    )
-                ]
-
-                if "KO-Wertung noch nicht aktiv" not in details:
-                    details.append("KO-Wertung noch nicht aktiv")
-
-                score["details"] = details
-
+            score = apply_ko_scoring_gate(score_user(user.id, overrides=overrides), ko_scoring_active)
             rows.append({"user": user, **score})
 
         rows.sort(key=lambda row: row["total"], reverse=True)
 
         if ko_scoring_active:
-            live_context = build_live_ko_context(
-                users,
-                matches,
-                teams_db,
-                actuals,
-                actual_by_no,
-                overrides,
-            )
+            live_context = build_live_ko_context(users, matches, teams_db, actuals, actual_by_no, overrides)
         else:
-            live_context = build_live_group_context(
-                users,
-                matches,
-                actual_by_no,
-            )
+            live_context = build_live_group_context(users, matches, actual_by_no)
 
         return render_template(
             "leaderboard.html",
@@ -763,6 +699,34 @@ def register_routes(app: Flask) -> None:
             live=live_context,
             teams=teams,
             actual_by_no=actual_by_no,
+        )
+
+    @app.route("/profile/<int:user_id>")
+    def profile(user_id: int):
+        user = User.query.get_or_404(user_id)
+        matches = Match.query.order_by(Match.match_no).all()
+        teams_db = Team.query.all()
+        teams = {t.code: t for t in teams_db}
+        actuals = ActualResult.query.all()
+        actual_by_no = {a.match_no: a for a in actuals}
+        overrides = GroupOverride.query.order_by(GroupOverride.group_id, GroupOverride.forced_rank).all()
+        ko_scoring_active = all_group_results_entered(matches, actual_by_no)
+
+        stats = user_profile_stats(
+            user,
+            matches,
+            teams_db,
+            actuals,
+            actual_by_no,
+            overrides,
+            ko_scoring_active,
+        )
+
+        return render_template(
+            "profile.html",
+            profile_user=user,
+            stats=stats,
+            teams=teams,
         )
 
     @app.route("/tables")

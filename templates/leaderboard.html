@@ -26,6 +26,8 @@
   .ko-team-pill.correct { background:#dcfce7; color:#14532d; border-color:#86efac; }
   .ko-team-pill.wrong { background:#fee2e2; color:#7f1d1d; border-color:#fecaca; }
   .mini-flag { width:20px; height:14px; object-fit:cover; border-radius:2px; box-shadow:0 0 0 1px rgba(0,0,0,.08); }
+  .leaderboard-user-link { font-weight:900; color:#0f172a; text-decoration:none; }
+  .leaderboard-user-link:hover { text-decoration:underline; }
   @media (max-width: 980px) { .leaderboard-grid { grid-template-columns:1fr; } .ko-live-user { grid-template-columns:1fr; } .live-match-head { grid-template-columns:1fr; } .live-match-meta { text-align:left; } }
 </style>
 
@@ -46,7 +48,7 @@
         {% for row in rows %}
           <tr>
             <td>{{ loop.index }}</td>
-            <td>{{ row.user.name }}</td>
+            <td><a class="leaderboard-user-link" href="{{ url_for('profile', user_id=row.user.id) }}">{{ row.user.name }}</a></td>
             <td><strong>{{ row.total }}</strong></td>
             <td>{{ row.group_points }}</td>
             <td>{{ row.ko_points }}</td>
@@ -84,7 +86,7 @@
                 <tbody>
                   {% for r in item.rows %}
                     <tr>
-                      <td>{{ r.user.name }}</td>
+                      <td><a class="leaderboard-user-link" href="{{ url_for('profile', user_id=r.user.id) }}">{{ r.user.name }}</a></td>
                       <td>{{ r.tip }}</td>
                       <td>{% if r.score %}<span class="score-badge {{ r.score.class }}">{{ r.score.label }}</span>{% else %}<span class="muted">–</span>{% endif %}</td>
                     </tr>
@@ -117,7 +119,7 @@
                 <tbody>
                   {% for r in item.rows %}
                     <tr>
-                      <td>{{ r.user.name }}</td>
+                      <td><a class="leaderboard-user-link" href="{{ url_for('profile', user_id=r.user.id) }}">{{ r.user.name }}</a></td>
                       <td>{{ r.tip }}</td>
                       <td></td>
                     </tr>
@@ -135,7 +137,7 @@
           <p class="small muted">Grün markierte Teams sind in dieser Runde tatsächlich dabei. Rot markierte Teams wurden getippt, haben diese Runde aber nicht erreicht.</p>
           {% for row in live.rows %}
             <div class="ko-live-user">
-              <strong>{{ row.user.name }}</strong>
+              <strong><a class="leaderboard-user-link" href="{{ url_for('profile', user_id=row.user.id) }}">{{ row.user.name }}</a></strong>
               <div class="ko-live-teams">
                 {% for t in row.teams %}
                   <span class="ko-team-pill {{ 'correct' if t.correct else 'wrong' }}">
