@@ -298,7 +298,7 @@ def build_live_group_context(users: list[User], matches: list[Match], actual_by_
     completed = [m for m in group_matches if group_result_entered(m, actual_by_no)]
     open_matches = [m for m in group_matches if not group_result_entered(m, actual_by_no)]
 
-    last_matches = sorted(completed, key=match_sort_key)[-3:]
+    last_matches = sorted(completed, key=match_sort_key, reverse=True)[:3]
     next_matches = sorted(open_matches, key=match_sort_key)[:3]
     relevant_nos = [m.match_no for m in last_matches + next_matches]
 
