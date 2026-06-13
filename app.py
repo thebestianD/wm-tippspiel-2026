@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 from flask import Flask, flash, redirect, render_template, request, session, url_for
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 
 from wm_tippspiel import db
@@ -71,6 +72,49 @@ def current_user() -> Optional[User]:
 
 def admin_required() -> bool:
     return bool(session.get("is_admin"))
+
+
+HIDDEN_USER_SETTING_PREFIX = "hidden_user_"
+
+
+def hidden_user_ids() -> set[int]:
+    """Return users hidden from public leaderboards and overview pages."""
+    rows = Setting.query.filter(
+        Setting.key.like(f"{HIDDEN_USER_SETTING_PREFIX}%"),
+        Setting.value == "1",
+    ).all()
+
+    result: set[int] = set()
+    for row in rows:
+        raw_id = row.key.removeprefix(HIDDEN_USER_SETTING_PREFIX)
+        try:
+            result.add(int(raw_id))
+        except ValueError:
+            continue
+    return result
+
+
+def set_user_hidden(user_id: int, hidden: bool) -> None:
+    """Persist public visibility without changing or deleting the user's tips."""
+    key = f"{HIDDEN_USER_SETTING_PREFIX}{user_id}"
+    setting = Setting.query.get(key)
+
+    if hidden:
+        if setting:
+            setting.value = "1"
+        else:
+            db.session.add(Setting(key=key, value="1"))
+    elif setting:
+        db.session.delete(setting)
+
+
+def visible_users() -> list[User]:
+    hidden_ids = hidden_user_ids()
+    return [
+        user
+        for user in User.query.order_by(User.name).all()
+        if user.id not in hidden_ids
+    ]
 
 
 def upsert_prediction(user_id: int, match_no: int, home_goals=None, away_goals=None, winner_code=None) -> None:
@@ -433,7 +477,7 @@ def register_routes(app: Flask) -> None:
 
     @app.route("/")
     def index():
-        user_count = User.query.count()
+        user_count = len(visible_users())
         match_count = Match.query.count()
         return render_template("index.html", user_count=user_count, match_count=match_count)
 
@@ -598,6 +642,32 @@ def register_routes(app: Flask) -> None:
                     flash(notice, "warning")
                 return redirect(url_for("admin"))
 
+            if action == "set_user_visibility":
+                try:
+                    user_id = int(request.form.get("user_id", ""))
+                except ValueError:
+                    flash("Ungültige Spieler-ID.", "error")
+                    return redirect(url_for("admin"))
+
+                user = User.query.get(user_id)
+                if not user:
+                    flash("Spieler nicht gefunden.", "error")
+                    return redirect(url_for("admin"))
+
+                hide_user = request.form.get("hidden") == "1"
+                set_user_hidden(user.id, hide_user)
+                db.session.add(AuditLog(
+                    action="admin_user_visibility",
+                    details=f"user={user.name}; hidden={hide_user}",
+                ))
+                db.session.commit()
+
+                if hide_user:
+                    flash(f"{user.name} wird in öffentlichen Übersichten ausgeblendet.", "ok")
+                else:
+                    flash(f"{user.name} wird wieder in öffentlichen Übersichten angezeigt.", "ok")
+                return redirect(url_for("admin"))
+
             if action == "save_overrides":
                 reason = request.form.get("override_reason", "Admin-Korrektur")
                 for group_id in "ABCDEFGHIJKL":
@@ -637,6 +707,13 @@ def register_routes(app: Flask) -> None:
             "winner_code": actual_by_no.get(no).winner_code if actual_by_no.get(no) else bm.winner_code,
             "meta": display_match_info(no),
         } for no, bm in bracket.items()}
+        admin_users = User.query.order_by(User.name).all()
+        hidden_ids = hidden_user_ids()
+        prediction_counts = dict(
+            db.session.query(Prediction.user_id, func.count(Prediction.id))
+            .group_by(Prediction.user_id)
+            .all()
+        )
         return render_template(
             "admin.html",
             matches=matches,
@@ -650,6 +727,9 @@ def register_routes(app: Flask) -> None:
             group_matches=group_matches,
             teams_json=teams_json,
             bracket_json=bracket_json,
+            admin_users=admin_users,
+            hidden_user_ids=hidden_ids,
+            prediction_counts=prediction_counts,
         )
 
     @app.route("/points")
@@ -671,7 +751,7 @@ def register_routes(app: Flask) -> None:
 
     @app.route("/leaderboard")
     def leaderboard():
-        users = User.query.order_by(User.name).all()
+        users = visible_users()
         matches = Match.query.order_by(Match.match_no).all()
         teams_db = Team.query.all()
         teams = {t.code: t for t in teams_db}
@@ -704,6 +784,11 @@ def register_routes(app: Flask) -> None:
     @app.route("/profile/<int:user_id>")
     def profile(user_id: int):
         user = User.query.get_or_404(user_id)
+        viewer = current_user()
+        if user.id in hidden_user_ids() and not admin_required() and (not viewer or viewer.id != user.id):
+            flash("Dieses Profil ist derzeit nicht öffentlich sichtbar.", "warning")
+            return redirect(url_for("leaderboard"))
+
         matches = Match.query.order_by(Match.match_no).all()
         teams_db = Team.query.all()
         teams = {t.code: t for t in teams_db}

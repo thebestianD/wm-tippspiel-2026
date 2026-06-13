@@ -8,6 +8,53 @@
   <a class="button secondary" href="{{ url_for('admin_logout') }}">Admin logout</a>
 </div>
 
+<style>
+  .admin-users-card { margin-bottom:18px; }
+  .admin-users-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-bottom:12px; }
+  .admin-users-list { display:grid; gap:8px; }
+  .admin-user-row { display:grid; grid-template-columns:minmax(160px,1fr) auto auto; gap:12px; align-items:center; padding:10px 12px; border:1px solid rgba(0,0,0,.08); border-radius:12px; background:#fff; }
+  .admin-user-row.is-hidden { background:#f8fafc; opacity:.82; }
+  .admin-user-meta { color:#64748b; font-size:.86rem; }
+  .visibility-badge { display:inline-flex; align-items:center; border-radius:999px; padding:4px 8px; font-weight:850; font-size:.8rem; }
+  .visibility-badge.visible { background:#dcfce7; color:#14532d; }
+  .visibility-badge.hidden { background:#e2e8f0; color:#334155; }
+  @media (max-width:700px) { .admin-user-row { grid-template-columns:1fr; } }
+</style>
+
+<section class="card admin-users-card">
+  <div class="admin-users-head">
+    <div>
+      <h2>Spieler-Sichtbarkeit</h2>
+      <p class="muted">Ausgeblendete Spieler behalten alle Tipps und Punkte, erscheinen aber nicht im öffentlichen Leaderboard, im Live-Bereich oder in öffentlichen Profilübersichten.</p>
+    </div>
+  </div>
+
+  <div class="admin-users-list">
+    {% for user in admin_users %}
+      {% set hidden = user.id in hidden_user_ids %}
+      <div class="admin-user-row {{ 'is-hidden' if hidden else '' }}">
+        <div>
+          <strong>{{ user.name }}</strong>
+          <div class="admin-user-meta">{{ prediction_counts.get(user.id, 0) }} gespeicherte Tipps</div>
+        </div>
+        <span class="visibility-badge {{ 'hidden' if hidden else 'visible' }}">
+          {{ 'Ausgeblendet' if hidden else 'Sichtbar' }}
+        </span>
+        <form method="post">
+          <input type="hidden" name="action" value="set_user_visibility">
+          <input type="hidden" name="user_id" value="{{ user.id }}">
+          <input type="hidden" name="hidden" value="{{ '0' if hidden else '1' }}">
+          <button class="button {{ 'secondary' if hidden else '' }}" type="submit">
+            {{ 'Wieder einblenden' if hidden else 'Ausblenden' }}
+          </button>
+        </form>
+      </div>
+    {% else %}
+      <p class="muted">Noch keine Spieler registriert.</p>
+    {% endfor %}
+  </div>
+</section>
+
 <form method="post" class="tip-form" id="admin-results-form">
   <input type="hidden" name="action" value="save_results">
 
@@ -207,10 +254,8 @@ function renderAdminGroup(groupId) {
   for (const match of ADMIN_GROUP_MATCHES[groupId]) {
     const hgEl = document.querySelector(`[name="actual_hg_${match.no}"]`);
     const agEl = document.querySelector(`[name="actual_ag_${match.no}"]`);
-    if (!hgEl || !agEl) continue;
-    if (hgEl.value === '' && agEl.value === '') continue;
-    const hg = hgEl.value === '' ? 0 : Number(hgEl.value);
-    const ag = agEl.value === '' ? 0 : Number(agEl.value);
+    if (!hgEl || !agEl || hgEl.value === '' || agEl.value === '') continue;
+    const hg = Number(hgEl.value), ag = Number(agEl.value);
     if (!Number.isInteger(hg) || !Number.isInteger(ag) || hg < 0 || ag < 0) continue;
     adminAddResult(rows[match.home], rows[match.away], hg, ag);
   }
