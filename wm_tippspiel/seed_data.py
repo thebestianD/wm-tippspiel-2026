@@ -95,7 +95,10 @@ KNOCKOUT_MATCHES = [
 ]
 
 # Official kick-off metadata. Values are Eastern Time (ET), matching FIFA's
-# schedule PDF. The UI converts these to Germany/Berlin summer time.
+# schedule PDF. IMPORTANT: date_et is the calendar date in Eastern Time, not
+# necessarily the venue-local date. For late matches in western host cities,
+# the ET date can already be the following day. The UI converts these values
+# to Europe/Berlin time.
 # broadcast: conservative German Free-TV status. Exact ARD/ZDF split is only
 # known for some games; unknown free-TV selections remain editable here.
 MATCH_INFO = {
@@ -103,8 +106,8 @@ MATCH_INFO = {
     2: {"date_et": "2026-06-11", "time_et": "22:00", "broadcast": "Free-TV offen / MagentaTV"},
     3: {"date_et": "2026-06-12", "time_et": "15:00", "broadcast": "Free-TV offen / MagentaTV"},
     4: {"date_et": "2026-06-12", "time_et": "21:00", "broadcast": "Free-TV offen / MagentaTV"},
-    5: {"date_et": "2026-06-12", "time_et": "21:00", "broadcast": "Free-TV offen / MagentaTV"},
-    6: {"date_et": "2026-06-13", "time_et": "00:00", "broadcast": "Free-TV offen / MagentaTV"},
+    5: {"date_et": "2026-06-13", "time_et": "21:00", "broadcast": "Free-TV offen / MagentaTV"},
+    6: {"date_et": "2026-06-14", "time_et": "00:00", "broadcast": "Free-TV offen / MagentaTV"},
     7: {"date_et": "2026-06-13", "time_et": "18:00", "broadcast": "Free-TV offen / MagentaTV"},
     8: {"date_et": "2026-06-13", "time_et": "15:00", "broadcast": "Free-TV offen / MagentaTV"},
     9: {"date_et": "2026-06-14", "time_et": "19:00", "broadcast": "Free-TV offen / MagentaTV"},
